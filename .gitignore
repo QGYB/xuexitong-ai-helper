@@ -19,3 +19,25 @@ runner-*.pid
 *.local.bak
 _smoke.cmd
 _portcheck.cmd
+
+# 本地控制台、多开前端及其打包产物不进入脚本发布包
+*.exe
+*.spec
+build/
+dist/
+__pycache__/
+.pytest_cache/
+.venv/
+wb-manager*.mjs
+wb_console.py
+test_wb_console.py
+console-build-requirements.txt
+build-console.cmd
+console-usage.md
+dashboard.html
+启动控制台.cmd
+多开启动.cmd
+instances.json
+manager-state.json
+manager-owned.json
+service.pid

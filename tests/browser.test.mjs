@@ -22,7 +22,7 @@ test('typed quiz request selects and submits once', async () => {
 });
 test('429 and incomplete answer sets stop without submission', async () => {
   for (const response of [{ ok: false, status: 429 }, { ok: true, status: 200, json: async () => ({ answers: [] }) }]) {
-    const doc = document(); const q = quiz(doc); const h = harness({ doc, fetch: async () => response }); const app = h.inject(); await h.advance(15);
+    const doc = document(); const q = quiz(doc); const h = harness({ doc, config: { quizRetryLimit: 0 }, fetch: async () => response }); const app = h.inject(); await h.advance(15);
     assert.equal(q.submit.clicks, 0); assert.equal(app.status, 'stopped');
   }
 });
@@ -114,7 +114,7 @@ test('same questions on consecutive quiz tasks cause distinct requests and submi
 
 test('request deadline aborts and unknown pages never advance', async () => {
   const doc = document(); const q = quiz(doc); let signal;
-  const h = harness({ doc, config: { requestTimeoutMs: 10 }, fetch: (url, options) => { signal = options.signal; return new Promise(() => {}); } }); const app = h.inject(); await h.advance(30);
+  const h = harness({ doc, config: { requestTimeoutMs: 10, quizRetryLimit: 0 }, fetch: (url, options) => { signal = options.signal; return new Promise(() => {}); } }); const app = h.inject(); await h.advance(30);
   assert.equal(signal.aborted, true); assert.equal(app.status, 'stopped'); assert.equal(q.submit.clicks, 0);
   const unknown = document(); const next = el('button', { id: 'prevNextFocusNext' }, '下一节'); unknown.body.append(next); const u = harness({ doc: unknown, mode: 'v3' }); const player = u.inject(); await u.advance(90); assert.equal(next.clicks, 0); assert.equal(player.status, 'stopped');
 });
@@ -135,7 +135,7 @@ test('stop aborts request and late answers cannot select', async () => {
 test('invalid answer IDs, letters, duplicates, cardinality and JSON prevent submit', async () => {
   const bodies = [{ answers: [{ id: 2, letters: ['A'] }] }, { answers: [{ id: 1, letters: ['Z'] }] }, { answers: [{ id: 1, letters: ['A', 'A'] }] }, { answers: [{ id: 1, letters: ['A', 'B'] }] }, null];
   for (const body of bodies) {
-    const doc = document(); const q = quiz(doc); const h = harness({ doc, fetch: async () => ({ ok: true, status: 200, json: async () => { if (body === null) throw new Error('bad JSON'); return body; } }) });
+    const doc = document(); const q = quiz(doc); const h = harness({ doc, config: { quizRetryLimit: 0 }, fetch: async () => ({ ok: true, status: 200, json: async () => { if (body === null) throw new Error('bad JSON'); return body; } }) });
     const app = h.inject(); await h.advance(15); assert.equal(q.submit.clicks, 0); assert.equal(app.status, 'stopped');
   }
 });
@@ -262,3 +262,345 @@ test('manual quiz-slot replacement discovers new player inside visible nested ca
   const video = el('video'); video.paused = true; video.play = async () => { video.paused = false; }; player.body.append(video); playerFrame.contentDocument = player; cards.body.append(playerFrame); courseFrame.contentDocument = cards;
   await h.advance(10); assert.equal(video.paused, false);
 });
+
+function extractionDump(h) {
+  return h.logs.filter(args => String(args[0]).includes('测验提取诊断')).map(args => JSON.parse(args[1]));
+}
+
+test('unusable choices dump individual control evidence before stopping', async () => {
+  const doc = document(); const q = quiz(doc, { labels: ['A. 北京选项文字很长用于确认诊断只输出前二十个字符而不是全部内容', 'B. 上海'] });
+  q.controls[0].disabled = true; q.controls[1].setAttribute('aria-disabled', 'true');
+  let calls = 0; const h = harness({ doc, config: { quizRetryLimit: 0 }, fetch: async () => { calls++; throw Error('must not request'); } });
+  const app = h.inject(); await h.advance(10);
+  assert.equal(app.status, 'stopped'); assert.equal(calls, 0); assert.equal(q.submit.clicks, 0);
+  const dumps = extractionDump(h); assert.equal(dumps.length, 1);
+  assert.equal(dumps[0].questionIndex, 1); assert.equal(dumps[0].controls.length, 2);
+  assert.equal(dumps[0].controls[0].type, 'radio'); assert.equal(dumps[0].controls[0].id, 'o0');
+  assert.equal(dumps[0].controls[0].disabled, true); assert.equal(dumps[0].controls[1].ariaDisabled, 'true');
+  assert.equal(dumps[0].controls[0].visible, true); assert.ok(dumps[0].controls[0].optionTarget);
+  assert.equal([...dumps[0].controls[0].text].length, 20);
+});
+
+for (const caption of ['重新作答', '重做', '继续作答']) {
+  test(`disabled quiz enters editable state through ${caption} exactly once`, async () => {
+    const doc = document(); const q = quiz(doc); q.controls.forEach(c => { c.disabled = true; });
+    const retry = el('button', {}, caption); doc.body.append(retry); const requests = [];
+    const h = harness({ doc, fetch: async (url, options) => { requests.push(JSON.parse(options.body)); return { ok: true, status: 200, json: async () => ({ answers: [{ id: 1, letters: ['A'] }] }) }; } });
+    retry.onClick = () => h.win.setTimeout(() => q.controls.forEach(c => { c.disabled = false; }), 8);
+    h.inject(); await h.advance(30);
+    assert.equal(retry.clicks, 1); assert.equal(requests.length, 1); assert.equal(q.controls[0].checked, true); assert.equal(q.submit.clicks, 1);
+  });
+}
+
+test('retry that never unlocks is bounded and never clicks repeatedly or submits', async () => {
+  const doc = document(); const q = quiz(doc); q.controls.forEach(c => { c.disabled = true; });
+  const retry = el('button', {}, '重新作答'); doc.body.append(retry);
+  const h = harness({ doc, config: { quizLoadTimeoutMs: 15 } }); const app = h.inject(); await h.advance(30);
+  assert.equal(retry.clicks, 1); assert.equal(app.status, 'stopped'); assert.equal(q.submit.clicks, 0); assert.ok(extractionDump(h).length);
+});
+
+test('inspection cannot restart a quiz and disabled retry controls are not clicked', async () => {
+  for (const disabled of [false, true]) {
+    const doc = document(); const q = quiz(doc); q.controls.forEach(c => { c.disabled = true; });
+    const retry = el('button', {}, '重新作答'); retry.disabled = disabled; doc.body.append(retry);
+    const h = harness({ doc, config: { quizRetryLimit: 0 } }); const app = h.inject(); app.inspectQuiz(); assert.equal(retry.clicks, 0);
+    if (disabled) { await h.advance(10); assert.equal(retry.clicks, 0); assert.equal(app.status, 'stopped'); }
+    else app.stop();
+  }
+});
+
+test('hidden native choices use visible li and skin containers even with a hidden inner label', async () => {
+  for (const [tag, attrs] of [['li', {}], ['div', { class: 'answerBg' }], ['div', { class: 'option' }], ['div', { 'data-option': 'A' }]]) {
+    const doc = document(); const q = quiz(doc); q.box.querySelectorAll('label').forEach(label => label.remove());
+    q.controls.forEach((control, index) => {
+      control.remove(); control.isConnected = true; control.style.display = 'none';
+      const container = el(tag, attrs, index ? 'B. 上海' : 'A. 北京');
+      const hiddenLabel = el('label'); hiddenLabel.hidden = true; hiddenLabel.append(control); container.append(hiddenLabel);
+      container.onClick = () => control.click(); q.box.append(container);
+    });
+    const h = harness({ doc }); h.inject(); await h.advance(20);
+    assert.equal(q.controls[0].checked, true); assert.equal(q.submit.clicks, 1);
+  }
+});
+
+test('unwrapped miscellaneous checkboxes do not change quiz choices or answer cardinality', async () => {
+  const doc = document(); const q = quiz(doc); const extras = Array.from({ length: 9 }, (_, i) => el('input', { type: 'checkbox', id: `setting${i}` }));
+  extras.forEach(c => { c.disabled = true; q.box.append(c); }); let payload;
+  const h = harness({ doc, fetch: async (url, options) => { payload = JSON.parse(options.body); return { ok: true, status: 200, json: async () => ({ answers: [{ id: 1, letters: ['A'] }] }) }; } });
+  h.inject(); await h.advance(20);
+  assert.equal(payload?.questions[0].options.length, 2); assert.equal(q.submit.clicks, 1); assert.ok(extras.every(c => c.clicks === 0));
+});
+
+test('read-only quiz with a current grade or completed marker takes completion without redoing', async () => {
+  for (const marker of ['本次成绩：100', '已完成']) {
+    const doc = document(); const q = quiz(doc); q.controls.forEach(c => { c.disabled = true; });
+    const retry = el('button', {}, '重新作答'); const next = el('button', { id: 'prevNextFocusNext' }, '下一节');
+    doc.body.append(el('div', { class: 'mark_title' }, marker), retry, next); let calls = 0;
+    const h = harness({ doc, fetch: async () => { calls++; throw Error('must not answer completed work'); } }); h.inject(); await h.advance(20);
+    assert.equal(next.clicks, 1); assert.equal(retry.clicks, 0); assert.equal(calls, 0); assert.equal(q.submit.clicks, 0);
+  }
+});
+
+test('unsupported mixed text question dumps its structure without answering supported rows', async () => {
+  const doc = document(); const q = quiz(doc); const fill = el('div', { class: 'TiMu' });
+  fill.append(el('div', { class: 'Zy_TItle', 'data-type': '简答题' }, '2.（简答题）说明原因'), el('textarea', { id: 'essay' })); doc.body.append(fill);
+  let calls = 0; const h = harness({ doc, fetch: async () => { calls++; throw Error('must not answer partial quiz'); } });
+  const app = h.inject(); await h.advance(10);
+  assert.equal(app.status, 'stopped'); assert.equal(calls, 0); assert.equal(q.submit.clicks, 0);
+  assert.ok(extractionDump(h).some(dump => dump.questionIndex === 2 && dump.otherControls.some(c => c.type === 'textarea')));
+});
+
+test('a submitted quiz waits for grading when the platform disables choices and offers redo', async () => {
+  const doc = document(); const q = quiz(doc); const retry = el('button', {}, '重新作答'); const next = el('button', { id: 'prevNextFocusNext' }, '下一节');
+  doc.body.append(retry, next); const h = harness({ doc });
+  q.submit.onClick = () => { q.controls.forEach(c => { c.disabled = true; }); h.win.setTimeout(() => doc.body.append(el('div', { class: 'score' }, '本次成绩：100')), 12); };
+  h.inject(); await h.advance(30);
+  assert.equal(q.submit.clicks, 1); assert.equal(retry.clicks, 0); assert.equal(next.clicks, 1);
+});
+
+test('disabled choices during an in-flight answer never trigger redo or accept late answers', async () => {
+  const doc = document(); const q = quiz(doc); const retry = el('button', {}, '重新作答'); doc.body.append(retry); let resolve;
+  const h = harness({ doc, fetch: () => new Promise(r => { resolve = r; }) }); h.inject(); await h.advance(5);
+  q.controls.forEach(c => { c.disabled = true; }); await h.advance(5);
+  resolve({ ok: true, status: 200, json: async () => ({ answers: [{ id: 1, letters: ['A'] }] }) }); await h.advance(10);
+  assert.equal(retry.clicks, 0); assert.equal(q.submit.clicks, 0); assert.equal(q.controls[0].checked, false);
+});
+
+test('disabled choices beside editable unsupported work and an old score cannot count as completed', async () => {
+  const doc = document(); const q = quiz(doc); q.controls.forEach(c => { c.disabled = true; });
+  const fill = el('div', { class: 'TiMu' }); fill.append(el('div', { class: 'Zy_TItle' }, '2.（简答题）原因'), el('textarea'));
+  const next = el('button', { id: 'prevNextFocusNext' }, '下一节'); doc.body.append(fill, el('div', { class: 'score' }, '本次成绩：60'), next);
+  const h = harness({ doc }); h.inject(); await h.advance(20); assert.equal(next.clicks, 0); assert.equal(q.submit.clicks, 0);
+});
+
+test('unrelated native aria checkbox cannot enter the semantic option fallback', async () => {
+  const doc = document(); const q = quiz(doc); q.controls.forEach(c => c.remove()); q.box.querySelectorAll('label').forEach(c => c.remove());
+  const choices = ['A. 北京', 'B. 上海'].map(word => el('div', { role: 'radio', 'aria-checked': 'false' }, word));
+  choices.forEach(control => { control.onClick = () => choices.forEach(c => c.setAttribute('aria-checked', String(c === control))); q.box.append(control); });
+  q.box.append(el('input', { type: 'checkbox', 'aria-checked': 'false' }));
+  const h = harness({ doc }); h.inject(); await h.advance(20); assert.equal(q.submit.clicks, 1); assert.equal(choices[0].getAttribute('aria-checked'), 'true');
+});
+
+test('an unparsed question without controls cannot inherit completion from disabled neighbouring choices', async () => {
+  const doc = document(); const q = quiz(doc); q.controls.forEach(c => { c.disabled = true; });
+  const unknown = el('div', { class: 'TiMu' }); unknown.append(el('div', { class: 'Zy_TItle' }, '2.（简答题）未加载的输入区'));
+  const next = el('button', { id: 'prevNextFocusNext' }, '下一节'); doc.body.append(unknown, el('div', { class: 'score' }, '本次成绩：60'), next);
+  const h = harness({ doc }); h.inject(); await h.advance(20); assert.equal(next.clicks, 0); assert.equal(q.submit.clicks, 0);
+});
+
+function mirroredQuiz({ duplicate = false } = {}) {
+  const doc = document(); const labels = ['A\n媚叔', 'B\n隐世', 'C\n富民', 'D\n帝力']; const q = quiz(doc, { labels });
+  q.box.querySelectorAll('label').forEach(label => label.remove());
+  q.controls.forEach((control, index) => {
+    control.remove(); control.isConnected = true; control.id = ''; control.attrs.id = ''; control.style.display = 'none';
+    const hidden = el('li', {}, labels[index]); hidden.hidden = true; hidden.append(control); q.box.append(hidden);
+    const rendered = el('li', {}, labels[index].replace('\n', '. ')); rendered.onClick = () => control.click(); q.box.append(rendered);
+    if (duplicate && index === 0) q.box.append(el('li', {}, labels[index]));
+  });
+  return { doc, q };
+}
+
+test('hidden unnamed radios map to unique visible mirrored choices from the screenshot shape', async () => {
+  const { doc, q } = mirroredQuiz(); let payload;
+  const h = harness({ doc, fetch: async (url, options) => { payload = JSON.parse(options.body); return { ok: true, status: 200, json: async () => ({ answers: [{ id: 1, letters: ['A'] }] }) }; } });
+  h.inject(); await h.advance(20); assert.equal(q.submit.clicks, 1); assert.equal(q.controls[0].checked, true);
+  assert.deepEqual(payload.questions[0].options.map(option => option.text), ['媚叔', '隐世', '富民', '帝力']);
+});
+
+test('ambiguous visible mirrored choices never receive an arbitrary click', async () => {
+  const { doc, q } = mirroredQuiz({ duplicate: true }); const h = harness({ doc, config: { quizRetryLimit: 0 } });
+  const app = h.inject(); await h.advance(15); assert.equal(app.status, 'stopped'); assert.equal(q.submit.clicks, 0); assert.ok(q.controls.every(c => c.clicks === 0));
+  const dump = extractionDump(h)[0]; assert.ok(dump.controls[0].containers.some(container => container.hidden));
+});
+
+test('display contents labels with visible children remain valid click targets', async () => {
+  const doc = document(); const q = quiz(doc); q.box.querySelectorAll('label').forEach(label => label.remove());
+  q.controls.forEach((control, index) => {
+    control.remove(); control.isConnected = true; control.style.display = 'none';
+    const label = el('label'); label.style.display = 'contents'; label.getClientRects = () => [];
+    label.append(control, el('span', {}, index ? 'B. 上海' : 'A. 北京')); label.onClick = () => control.click(); q.box.append(label);
+  });
+  const h = harness({ doc }); h.inject(); await h.advance(20); assert.equal(q.submit.clicks, 1); assert.equal(q.controls[0].checked, true);
+});
+
+test('answer HTTP errors retry current quiz then submit exactly once', async () => {
+  for (const status of [429, 502]) {
+    const doc = document(); const q = quiz(doc); let calls = 0;
+    const h = harness({ doc, config: { quizRetryLimit: 2, quizRetryDelayMs: 5 }, fetch: async () => ++calls === 1 ? { ok: false, status } : { ok: true, status: 200, json: async () => ({ answers: [{ id: 1, letters: ['A'] }] }) } });
+    h.inject(); await h.advance(30); assert.equal(calls, 2); assert.equal(q.submit.clicks, 1);
+  }
+});
+
+test('repeated transient answer failures exhaust retries without selecting or submitting', async () => {
+  const doc = document(); const q = quiz(doc); let calls = 0;
+  const h = harness({ doc, config: { quizRetryLimit: 2, quizRetryDelayMs: 5 }, fetch: async () => { calls++; return { ok: false, status: 502 }; } });
+  const app = h.inject(); await h.advance(35); assert.equal(calls, 3); assert.equal(app.status, 'stopped'); assert.equal(q.submit.clicks, 0); assert.equal(q.controls[0].checked, false);
+});
+
+test('timed-out answer aborts, retries, and ignores the first late response', async () => {
+  const doc = document(); const q = quiz(doc); let calls = 0; let firstResolve; let firstSignal;
+  const h = harness({ doc, config: { quizRetryLimit: 1, quizRetryDelayMs: 5, requestTimeoutMs: 8 }, fetch: (url, options) => {
+    calls++; if(calls===1){firstSignal=options.signal;return new Promise(resolve=>{firstResolve=resolve;});}
+    return Promise.resolve({ok:true,status:200,json:async()=>({answers:[{id:1,letters:['B']}]})});
+  } });
+  h.inject(); await h.advance(35); assert.equal(firstSignal.aborted,true); assert.equal(calls,2); assert.equal(q.submit.clicks,1); assert.equal(q.controls[1].checked,true);
+  firstResolve({ok:true,status:200,json:async()=>({answers:[{id:1,letters:['A']}]})}); await h.flush(); assert.equal(q.controls[0].checked,false); assert.equal(q.submit.clicks,1);
+});
+
+test('temporarily missing choice targets recover through bounded extraction retry', async () => {
+  const {doc,q}=mirroredQuiz(); const mirrors=q.box.querySelectorAll('li').filter(node=>!node.hidden); mirrors.forEach(node=>{node.hidden=true;});
+  const h=harness({doc,config:{quizRetryLimit:2,quizRetryDelayMs:5}});h.inject();await h.advance(5);mirrors.forEach(node=>{node.hidden=false;});await h.advance(25);assert.equal(q.submit.clicks,1);
+});
+
+test('a click or submit failure after applying answers is never automatically repeated',async()=>{
+ const doc=document();const q=quiz(doc);let calls=0;q.submit.onClick=()=>{throw Error('submit interrupted');};
+ const h=harness({doc,config:{quizRetryLimit:3,quizRetryDelayMs:5},fetch:async()=>{calls++;return{ok:true,status:200,json:async()=>({answers:[{id:1,letters:['A']}]})};}});
+ const app=h.inject();await h.advance(35);assert.equal(calls,1);assert.equal(q.submit.clicks,1);assert.equal(app.status,'stopped');
+});
+
+test('retry refreshes replaced identical option nodes before confirming submission',async()=>{
+ const doc=document();const q=quiz(doc);let calls=0;const dialog=el('div',{role:'dialog'},'确认提交？');dialog.hidden=true;const confirm=el('button',{},'确定');dialog.append(confirm);doc.body.append(dialog);q.submit.onClick=()=>{dialog.hidden=false;};
+ const h=harness({doc,config:{quizRetryLimit:1,quizRetryDelayMs:5},fetch:async()=>{
+  if(++calls===1){h.win.setTimeout(()=>{q.controls=q.controls.map((old,index)=>{old.remove();const control=el('input',{type:'radio',id:`o${index}`,name:'q1'});q.box.append(control);return control;});},1);return{ok:false,status:502};}
+  return{ok:true,status:200,json:async()=>({answers:[{id:1,letters:['A']}]})};
+ }});h.inject();await h.advance(35);assert.equal(calls,2);assert.equal(q.controls[0].checked,true);assert.equal(q.submit.clicks,1);assert.equal(confirm.clicks,1);
+});
+
+function legacyAriaQuiz({ hidden = false, type = '单选题', stale = false, letters: optionLetters = ['A', 'B'] } = {}) {
+  const doc = document(); const q = quiz(doc, { type });
+  q.controls.forEach(c => c.remove()); q.box.querySelectorAll('label').forEach(c => c.remove());
+  const list = el('ul', { class: 'Zy_ulTop', 'aria-hidden': 'true' }); list.hidden = hidden;
+  const answer = el('input', { type: 'hidden', name: 'answer123', id: 'answer123', value: '' }); q.box.append(answer, list);
+  const controls = optionLetters.map((letter, i) => {
+    const judgment = type === '判断题';
+    const li = el('li', { role: type === '多选题' ? 'checkbox' : 'radio', qid: '123', qtype: type === '多选题' ? '1' : judgment ? '3' : '0' });
+    li.append(el('span', { class: 'num_option', name: 'answer123', data: judgment ? String(i === 0) : letter }, letter), el('a', {}, judgment ? i ? '错' : '对' : ['北京', '上海', '杭州', '深圳'][i]));
+    li.onClick = () => { if (stale) return;
+      if (judgment) { answer.value = String(i === 0); controls.forEach((c,j) => c.setAttribute('aria-checked', String(i === j))); return; }
+      const picked = type === '多选题' ? new Set(answer.value) : new Set();
+      if (picked.has(letter)) picked.delete(letter); else picked.add(letter);
+      answer.value = [...picked].sort().join(''); controls.forEach((c, j) => c.setAttribute('aria-checked', String(picked.has(optionLetters[j])))); };
+    list.append(li); return li;
+  });
+  return { doc, q, controls, answer };
+}
+
+test('rendered legacy list options ignore accessibility hiding and verify actual answer state', async () => {
+  for (const type of ['单选题', '多选题']) {
+    const { doc, q, controls, answer } = legacyAriaQuiz({ type });
+    const h = harness({ doc }); h.inject(); await h.advance(20);
+    assert.equal(q.submit.clicks, 1); assert.equal(answer.value, 'A'); assert.equal(controls[0].getAttribute('aria-checked'), 'true');
+  }
+});
+
+test('legacy list hidden visually remains unusable despite known answer metadata', async () => {
+  const { doc, q, controls } = legacyAriaQuiz({ hidden: true });
+  const h = harness({ doc, config: { quizRetryLimit: 0 } }); const app = h.inject(); await h.advance(20);
+  assert.equal(app.status, 'stopped'); assert.equal(q.submit.clicks, 0); assert.ok(controls.every(c => c.clicks === 0));
+});
+
+test('legacy list selection must change the linked answer state before submitting', async () => {
+  const { doc, q } = legacyAriaQuiz({ stale: true });
+  const h = harness({ doc }); const app = h.inject(); await h.advance(20);
+  assert.equal(app.status, 'stopped'); assert.equal(q.submit.clicks, 0);
+});
+
+test('current submission confirms the platform popup in its ancestor course document once', async () => {
+  const doc = document(); const frame = el('iframe'); frame.contentDocument = document('https://mooc1.chaoxing.com/work?chapterId=1'); doc.body.append(frame);
+  const q = quiz(frame.contentDocument); const popup = el('div', { id: 'workpop' }); popup.hidden = true;
+  const prompt = el('p', { id: 'popcontent' }, '确认提交？'); const bottom = el('div'); const confirm = el('a', { id: 'popok', role: 'button' }, '提交');
+  bottom.append(confirm); popup.append(prompt, bottom); doc.body.append(popup); q.submit.onClick = () => { popup.hidden = false; };
+  const h = harness({ doc }); h.inject(); await h.advance(30); assert.equal(confirm.clicks, 1); assert.equal(q.submit.clicks, 1);
+});
+
+test('ancestor popup already visible before submitting cannot be confirmed', async () => {
+  const doc = document(); const frame = el('iframe'); frame.contentDocument = document('https://mooc1.chaoxing.com/work?chapterId=1'); doc.body.append(frame); quiz(frame.contentDocument);
+  const popup = el('div', { id: 'workpop' }, '确认提交？'); const confirm = el('a', { id: 'popok' }, '提交'); popup.append(confirm); doc.body.append(popup);
+  const h = harness({ doc }); h.inject(); await h.advance(20); assert.equal(confirm.clicks, 0);
+});
+
+test('graded review with retained noninteractive options recognizes achievement and never answers again', async () => {
+  const doc = document(); const box = el('div', { class: 'TiMu newTiMu ans-cc' }); box.append(el('div', { class: 'Zy_TItle' }, '1. 单选题 首都在哪？'));
+  const list = el('ul', { 'aria-hidden': 'true' }); list.append(el('li', { role: 'option' }, 'A、北京'), el('li', { role: 'option' }, 'B、上海')); box.append(list);
+  const next = el('button', { id: 'prevNextFocusNext' }, '下一节'); doc.body.append(box, el('span', { class: 'achievement' }, '本次成绩66.6分'), next);
+  let calls = 0; const h = harness({ doc, fetch: async () => { calls++; throw Error('must not answer review'); } }); h.inject(); await h.advance(20);
+  assert.equal(calls, 0); assert.equal(next.clicks, 1);
+});
+
+test('legacy judgment uses boolean stored values while the answer protocol uses letters', async () => {
+  for (const [letter, value] of [['A', 'true'], ['B', 'false']]) {
+    const { doc, q, answer } = legacyAriaQuiz({ type: '判断题' }); let payload;
+    const h = harness({ doc, fetch: async (url, options) => { payload = JSON.parse(options.body); return { ok: true, status: 200, json: async () => ({ answers: [{ id: 1, letters: [letter] }] }) }; } });
+    h.inject(); await h.advance(20); assert.equal(answer.value, value); assert.equal(q.submit.clicks, 1);
+    assert.equal(payload.questions[0].type, '判断题'); assert.deepEqual(payload.questions[0].options.map(o => o.text), ['对', '错']);
+  }
+});
+
+test('legacy judgment preserves an already selected false answer without toggling it', async () => {
+  const { doc, q, answer, controls } = legacyAriaQuiz({ type: '判断题' }); answer.value = 'false';
+  const h = harness({ doc, fetch: async () => ({ ok: true, status: 200, json: async () => ({ answers: [{ id: 1, letters: ['B'] }] }) }) });
+  h.inject(); await h.advance(20); assert.equal(q.submit.clicks, 1); assert.equal(answer.value, 'false'); assert.ok(controls.every(c => c.clicks === 0));
+});
+
+test('legacy multiple choice selects all requested letters and clears only the incorrect previous choice', async () => {
+  const { doc, q, answer, controls } = legacyAriaQuiz({ type: '多选题', letters: ['A','B','C','D'] }); answer.value = 'BC';
+  const h = harness({ doc, fetch: async () => ({ ok: true, status: 200, json: async () => ({ answers: [{ id: 1, letters: ['A','C'] }] }) }) });
+  h.inject(); await h.advance(20); assert.equal(q.submit.clicks, 1); assert.equal(answer.value, 'AC');
+  assert.deepEqual(controls.map(c => c.clicks), [1,1,0,0]);
+});
+
+test('legacy multiple choice with comma-separated values preserves existing correct selections', async () => {
+  const { doc, q, answer, controls } = legacyAriaQuiz({ type: '多选题', letters: ['A','B','C','D'] }); answer.value = 'A,C';
+  const h = harness({ doc, fetch: async () => ({ ok: true, status: 200, json: async () => ({ answers: [{ id: 1, letters: ['A','C'] }] }) }) });
+  h.inject(); await h.advance(20); assert.equal(q.submit.clicks, 1); assert.equal(answer.value, 'A,C'); assert.ok(controls.every(c => c.clicks === 0));
+});
+
+test('mixed graded review recognizes judgment answer blocks without rendering any choices', async () => {
+  const doc = document();
+  for (const type of ['单选题','判断题','多选题']) {
+    const box = el('div', { class: 'TiMu' }); box.append(el('div', { class: 'Zy_TItle' }, `${type} 合成题`));
+    if (type === '判断题') { const result = el('div', { class: 'newAnswerBx' }); result.append(el('div', { class: 'answerCon' }, '错'), el('span', { class: 'scoreNum' }, '50.0')); box.append(result); }
+    else { const list = el('ul', { 'aria-hidden':'true' }); list.append(el('li', {role:'option'}, 'A、甲'), el('li', {role:'option'}, 'B、乙')); box.append(list); }
+    doc.body.append(box);
+  }
+  const next = el('button', { id: 'prevNextFocusNext' }, '下一节'); doc.body.append(el('span', { class: 'achievement' }, '本次成绩50分'), next);
+  let calls = 0; const h = harness({ doc, fetch: async () => { calls++; throw Error('must not reanswer review'); } }); h.inject(); await h.advance(20);
+  assert.equal(calls, 0); assert.equal(next.clicks, 1);
+});
+
+test('an old incomplete answer block without per-question grade cannot complete an unresolved question', async () => {
+  const doc = document(); const box = el('div', { class: 'TiMu' }); box.append(el('div', { class: 'Zy_TItle' }, '判断题 合成题'));
+  const result = el('div', { class: 'newAnswerBx' }); result.append(el('div', { class: 'answerCon' }, '错')); box.append(result);
+  const next = el('button', { id:'prevNextFocusNext' }, '下一节'); doc.body.append(box, el('span', {class:'achievement'}, '本次成绩50分'), next);
+  const h = harness({ doc, config: { quizRetryLimit: 0 } }); h.inject(); await h.advance(20); assert.equal(next.clicks, 0);
+});
+
+test('question content changed while waiting for an answer retry cancels automatic answering', async () => {
+  const doc = document(); const q = quiz(doc); let calls = 0;
+  const h = harness({ doc, config: { quizRetryLimit: 1, quizRetryDelayMs: 15 }, fetch: async () => {
+    calls++; return calls === 1 ? { ok:false, status:502 } : { ok:true, status:200, json:async()=>({ answers:[{id:1,letters:['A']}] }) };
+  } });
+  const app = h.inject(); await h.advance(7); q.box.querySelector('.Zy_TItle').text = '1. （单选题）重试等待时换成另一题？';
+  await h.advance(35); assert.equal(app.status, 'stopped'); assert.equal(calls, 1); assert.equal(q.submit.clicks, 0); assert.ok(q.controls.every(c => !c.checked));
+});
+
+for (const id of ['', 'workpop']) {
+  test(`new unrelated ancestor confirmation is ignored even after submission (${id || 'generic dialog'})`, async () => {
+    const doc = document(); const frame = el('iframe'); frame.contentDocument = document('https://mooc1.chaoxing.com/work?chapterId=1'); doc.body.append(frame); const q = quiz(frame.contentDocument);
+    const popup = el('div', id ? { id } : { role:'dialog' }); popup.hidden = true;
+    popup.append(el('p', { id:'popcontent' }, '确认提交其他课程的信息？')); const confirm = el('button', { id:'popok' }, '确定'); popup.append(confirm); doc.body.append(popup);
+    q.submit.onClick = () => { popup.hidden = false; };
+    const h = harness({ doc }); h.inject(); await h.advance(25); assert.equal(q.submit.clicks, 1); assert.equal(confirm.clicks, 0);
+  });
+}
+
+for (const editable of [false,true]) {
+  test(`mixed disabled/native and judgment review ${editable ? 'rejects an editable question' : 'advances only when all rows are read only'}`, async () => {
+    const doc = document(); const q = quiz(doc); q.controls.forEach(c => { c.disabled = !editable; }); q.submit.remove();
+    const judgment = el('div', { class:'TiMu' }); judgment.append(el('div', {class:'Zy_TItle'}, '判断题 合成题'));
+    const result = el('div', {class:'newAnswerBx'}); result.append(el('div', {class:'answerCon'}, '错'),el('span',{class:'scoreNum'},'50.0')); judgment.append(result);
+    const next = el('button', { id:'prevNextFocusNext' }, '下一节'); doc.body.append(judgment,el('span',{class:'achievement'},'本次成绩50分'),next);
+    let calls = 0; const h = harness({ doc, config:{quizRetryLimit:0}, fetch:async()=>{calls++;throw Error('must not answer');} }); h.inject(); await h.advance(20);
+    assert.equal(calls,0); assert.equal(next.clicks,editable?0:1);
+  });
+}

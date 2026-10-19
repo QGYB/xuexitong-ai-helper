@@ -31,7 +31,7 @@ function createCourseController(mode, token) {
     guardNoProgressMs: 7000, guardResumeCooldownMs: 1500,
     tickMs: 1000, playRetryLimit: 10, playbackRate: mode === 'v3' ? 1.5 : null,
     requestTimeoutMs: 900000, transitionTimeoutMs: 45000, quizLoadTimeoutMs: 120000,
-    quizWarnMs: 600000, quizStopMs: 900000
+    quizWarnMs: 600000, quizStopMs: 900000, quizRetryLimit: 3, quizRetryDelayMs: 3000
   }, host.__XUEXITONG_CONFIG__ || {});
   if (configs.quizCompletionWarningMs !== undefined) configs.quizWarnMs = configs.quizCompletionWarningMs;
   if (configs.quizCompletionTimeoutMs !== undefined) configs.quizStopMs = configs.quizCompletionTimeoutMs;
@@ -42,30 +42,35 @@ function createCourseController(mode, token) {
   if (host.__XUEXITONG_CONFIG__?.playRetryLimit !== undefined && host.__XUEXITONG_CONFIG__?.maxRetries === undefined) configs.maxRetries = configs.playRetryLimit;
   const state = {
     alive: true, busy: false, timer: null, abort: null, requestTimer: null,
-    quiz: null, transition: null, video: null, playAttempts: 0,
+    quiz: null, quizRetry: null, transition: null, video: null, playAttempts: 0,
     pageStarted: Date.now(), warned: false, message: '', status: 'starting',
     ready: mode === 'v3', lastProgress: Date.now(), lastTime: null, lastPlayAt: -Infinity, pendingTimers: new Set()
   };
   const visited = new WeakMap();
+  const quizRetries = new WeakMap();
   const letters = 'ABCDEFGH';
   const questionSelector = '.TiMu,.question-item,[data-question-id],[data-question]';
-  const scoreSelector = '.score,.mark_score,.mark_title,.totalScore,.resultScore,[data-quiz-complete],.Zy_mark';
+  const scoreSelector = '.score,.mark_score,.mark_title,.totalScore,.resultScore,[data-quiz-complete],.Zy_mark,.achievement';
   const tabSelector = '[role="tab"],.tab,.tab-item,.tabItem,.ans-job-icon,.knowledgeTab,.tabtags,a,button,li';
-  const dialogSelector = '[role="dialog"],[role="alertdialog"],.layui-layer-dialog,.dialog,.modal,.el-message-box,#popcontent';
+  const dialogSelector = '[role="dialog"],[role="alertdialog"],.layui-layer-dialog,.dialog,.modal,.el-message-box,#workpop,#popcontent';
   const clean = value => String(value || '').replace(/\r/g, '').replace(/[\t\f\v ]+/g, ' ').replace(/ *\n */g, '\n').trim();
   const textOf = node => clean(node?.innerText ?? node?.textContent ?? '');
   const all = (root, selector) => Array.from(root.querySelectorAll(selector));
 
-  function visible(node) {
+  function rendered(node, accessibilityHidden) {
     if (!node || node.isConnected === false) return false;
     for (let n = node; n && n.nodeType !== 9; n = n.parentElement) {
-      if (n.hidden || n.getAttribute?.('aria-hidden') === 'true') return false;
+      if (n.hidden || (!accessibilityHidden && n.getAttribute?.('aria-hidden') === 'true')) return false;
       const view = n.ownerDocument?.defaultView || host;
       const style = view.getComputedStyle?.(n);
       if (style?.display === 'none' || style?.visibility === 'hidden' || style?.visibility === 'collapse') return false;
     }
     return typeof node.getClientRects !== 'function' || node.getClientRects().length > 0;
   }
+  function visible(node) { return rendered(node, false); }
+  // The platform hides its painted option list from accessibility APIs.
+  // CSS visibility and actual layout still determine whether choices can be clicked.
+  function visibleOption(node) { return rendered(node, true); }
   function locationKey(url) {
     try {
       const u = new URL(url, here.href);
@@ -125,22 +130,38 @@ function createCourseController(mode, token) {
     const marker = box.getAttribute('data-type') || title?.getAttribute('data-type') || textOf(title);
     return ['多选题', '单选题', '判断题'].find(t => marker.includes(t)) || '';
   }
+  const optionContainerSelector = 'label,li,.answerBg,.option,[data-option]';
+  function optionContainers(control, box) {
+    const containers = [];
+    for (let node = control.parentElement; node && node !== box && box.contains(node); node = node.parentElement) {
+      if (node.matches(optionContainerSelector)) containers.push(node);
+    }
+    if (control.id) containers.push(...all(box, 'label').filter(label => label.getAttribute('for') === control.id));
+    return [...new Set(containers)];
+  }
   function controlLabel(control, box) {
     if (!control.matches('input') && control.matches('[role="radio"],[role="checkbox"],[aria-checked]')) return textOf(control);
-    const direct = control.closest('label');
-    if (direct && box.contains(direct)) return textOf(direct);
-    if (control.id) {
-      const label = all(box, 'label').find(l => l.getAttribute('for') === control.id);
-      if (label) return textOf(label);
-    }
-    return textOf(control.closest('li,.answerBg,.option,[data-option]'));
+    const containers = optionContainers(control, box);
+    return textOf(containers.find(visibleOption) || containers[0]);
   }
   function optionTarget(control, box) {
-    if (visible(control)) return control;
-    const label = control.closest('label') || all(box, 'label').find(l => l.getAttribute('for') === control.id);
-    return label && visible(label) ? label : null;
+    if (visibleOption(control)) return control;
+    const rendered = node => visibleOption(node) ||
+      ((node.ownerDocument?.defaultView || host).getComputedStyle?.(node)?.display === 'contents' && all(node, '*').some(visibleOption));
+    const direct = optionContainers(control, box).find(rendered);
+    if (direct) return direct;
+    // Some skins keep native inputs in a hidden list and render a second list.
+    // Require a unique full-label match inside this question; never click a
+    // generic ancestor or choose between ambiguous duplicated labels.
+    const key = value => clean(value).replace(/\s+/g, ' ').replace(/^([A-H])(?:[.、．:：)）]|\s)*\s*/i, '$1 ').trim();
+    const wanted = key(controlLabel(control, box));
+    if (!wanted) return null;
+    const matches = all(box, optionContainerSelector).filter(node => !node.contains(control) && rendered(node) &&
+      !all(node, 'input[type="radio"],input[type="checkbox"]').length && key(textOf(node)) === wanted);
+    const leaves = matches.filter(node => !matches.some(other => other !== node && node.contains(other)));
+    return leaves.length === 1 ? leaves[0] : null;
   }
-  function extract(entry) {
+  function extract(entry, allowRetry = false) {
     const everyBox = all(entry.doc, questionSelector);
     const boxes = everyBox.filter(visible);
     const outer = boxes.filter(box => !boxes.some(other => other !== box && other.contains(box)));
@@ -150,22 +171,84 @@ function createCourseController(mode, token) {
     if ((declared && Number(declared[1]) !== outer.length) || everyBox.some(box => !visible(box))) {
       const error = new Error('题目尚未全部显示，等待页面加载'); error.incomplete = true; throw error;
     }
-    const rows = outer.map((box, i) => {
+    const disabled = control => control.disabled || control.getAttribute('aria-disabled') === 'true';
+    const choices = outer.map(box => {
+      const native = all(box, 'input[type="radio"],input[type="checkbox"]');
+      const eligible = native.filter(control => optionContainers(control, box).length > 0);
+      const semantic = all(box, '[role="radio"],[role="checkbox"],[aria-checked]').filter(control => !control.matches('input'));
+      const controls = eligible.length ? eligible : semantic.filter(c => !semantic.some(other => other !== c && other.contains(c)));
+      const other = all(box, 'textarea,input[type="text"],[contenteditable="true"]');
+      return { box, native, controls, other };
+    });
+    function dump({ box, native, controls }, index, reason) {
+      const describe = control => {
+        const target = optionTarget(control, box);
+        return {
+          type: control.type || control.getAttribute('role') || control.tagName.toLowerCase(), id: control.id || '',
+          disabled: Boolean(control.disabled), ariaDisabled: control.getAttribute('aria-disabled'), visible: visible(control),
+          optionTarget: target ? { tag: target.tagName.toLowerCase(), id: target.id || '', visible: visible(target) } : null,
+          text: Array.from(controlLabel(control, box) || textOf(control)).slice(0, 20).join(''), included: controls.includes(control),
+          containers: optionContainers(control, box).slice(0, 6).map(node => ({
+            tag: node.tagName.toLowerCase(), id: node.id || '', className: node.getAttribute('class') || '',
+            hidden: Boolean(node.hidden), ariaHidden: node.getAttribute('aria-hidden'), visible: visible(node),
+            display: (node.ownerDocument?.defaultView || host).getComputedStyle?.(node)?.display || '',
+            visibility: (node.ownerDocument?.defaultView || host).getComputedStyle?.(node)?.visibility || ''
+          }))
+        };
+      };
+      host.console.warn('[学习助手] 测验提取诊断', JSON.stringify({
+        questionIndex: index + 1, reason,
+        controls: [...new Set([...native, ...controls])].map(describe),
+        otherControls: all(box, 'textarea,input[type="text"],[contenteditable="true"]').map(describe)
+      }));
+    }
+    const flattened = choices.flatMap(choice => choice.controls);
+    const disabledChoice = choice => choice.controls.length + choice.other.length > 0 &&
+      choice.controls.every(disabled) && choice.other.every(disabled);
+    const readOnly = flattened.length > 0 && choices.every(disabledChoice);
+    const activeRecord = state.quiz?.doc === entry.doc && state.quiz?.task === entry.task ? state.quiz : null;
+    // Only a fully read-only quiz may use an existing result as completion.
+    // Live questions beside an old score retain the existing fail-closed guard.
+    const reviewOnly = choices.every(choice => disabledChoice(choice) || (!choice.controls.length && !choice.other.length &&
+      (all(choice.box, 'li[role="option"]').length >= 2 || all(choice.box, '.newAnswerBx').some(result =>
+        visible(result) && all(result, '.answerCon').some(node => visible(node) && textOf(node)) &&
+        all(result, '.scoreNum').some(node => visible(node) && /^\d+(?:\.\d+)?$/.test(textOf(node))))))) && !submitControl(entry.doc);
+    if ((readOnly || reviewOnly) && (completion(entry) || activeRecord?.submitted)) return null;
+    const pending = quizRetries.get(entry.doc);
+    const retried = pending?.task === entry.task;
+    if (allowRetry && mode === 'console' && !activeRecord?.requested && !activeRecord?.submitted) {
+      const retry = readOnly && all(entry.doc, 'button,a,[role="button"],input[type="button"],input[type="submit"]')
+        .find(node => visible(node) && !disabled(node) && /^(?:重新作答|重做|继续作答)$/.test(textOf(node) || clean(node.value)));
+      if (retry && !retried) {
+        choices.forEach((choice, index) => dump(choice, index, '所有选项禁用，尝试进入重新作答状态'));
+        quizRetries.set(entry.doc, { task: entry.task });
+        retry.click();
+        const error = new Error('已点击重新作答，等待可操作选项'); error.incomplete = true; throw error;
+      }
+      if (retried && choices.some(choice => choice.controls.length < 2 || choice.controls.some(c => disabled(c) || !optionTarget(c, choice.box)))) {
+        const error = new Error('重新作答尚未就绪，等待页面加载'); error.incomplete = true; throw error;
+      }
+    }
+    const rows = choices.map((choice, i) => {
+      const { box, controls } = choice;
+      const reject = (message, retryable = false) => { dump(choice, i, message); const error = new Error(message); error.retryable = retryable; throw error; };
       const title = all(box, '.Zy_TItle,.question-title,.stem,[data-stem],legend').find(visible);
       const type = typeOf(box, title);
-      if (!type || !title) throw new Error('无法识别题型或题干，已停止');
+      if (!type || !title) reject('无法识别题型或题干（仅支持单选、多选和判断题），已停止');
       const question = textOf(title).replace(/^\s*\d+\s*[.、．)）]\s*/, '')
         .replace(/^[（(【\[]?\s*(?:单选题|多选题|判断题)\s*[）)】\]]?\s*[:：]?\s*/, '').trim();
-      const native = all(box, 'input[type="radio"],input[type="checkbox"]');
-      const semantic = all(box, '[role="radio"],[role="checkbox"],[aria-checked]');
-      const controls = native.length ? native : semantic.filter(c => !semantic.some(other => other !== c && other.contains(c)));
-      if (controls.length < 2 || controls.length > 8 || controls.some(c => !optionTarget(c, box) || c.disabled || c.getAttribute('aria-disabled') === 'true')) throw new Error('选项不完整或不可操作，已停止');
-      if (controls.some(c => ((c.type || c.getAttribute('role')) && (c.type || c.getAttribute('role')) !== (type === '多选题' ? 'checkbox' : 'radio')) || (!c.type && !['true','false'].includes(c.getAttribute('aria-checked'))))) throw new Error('选项类型或选中状态不明确，已停止');
-      if (type === '判断题' && controls.length !== 2) throw new Error('判断题必须恰有两个选项');
+      if (controls.length < 2 || controls.length > 8 || controls.some(c => !optionTarget(c, box) || disabled(c))) reject('选项不完整或不可操作', true);
+      if (controls.some((c, index) => {
+        const role = c.type || c.getAttribute('role');
+        return (role && role !== (type === '多选题' ? 'checkbox' : 'radio')) ||
+          (!c.type && !['true','false'].includes(c.getAttribute('aria-checked')) && !legacyChoice(c, box, letters[index]));
+      })) reject('选项类型或选中状态不明确，已停止');
+      if (type === '判断题' && controls.length !== 2) reject('判断题必须恰有两个选项');
       const options = controls.map((control, index) => ({ letter: letters[index], text: controlLabel(control, box).replace(/^[A-H](?:\s*[.、．:：)）]\s*|\s*\n\s*)/i, '').trim() }));
-      if (!question || question.length > 500 || options.some(o => !o.text || o.text.length > 500)) throw new Error('题干或选项超出支持范围');
+      if (!question || question.length > 500 || options.some(o => !o.text || o.text.length > 500)) reject('题干或选项超出支持范围');
       return { box, controls, targets: controls.map(c => optionTarget(c, box)), wire: { id: i + 1, type, question, options } };
     });
+    if (retried) quizRetries.delete(entry.doc);
     return { entry, rows, signature: JSON.stringify(rows.map(r => r.wire)) };
   }
   function unchanged(snapshot) {
@@ -185,7 +268,8 @@ function createCourseController(mode, token) {
     return all(entry.doc, scoreSelector).some(node => {
       if (!visible(node)) return false;
       const text = textOf(node);
-      const valid = node.getAttribute('data-quiz-complete') === 'true' || (!/尚未|未公布|待批|待评|未完成|未提交|正在/.test(text) && /(?:本次成绩|得分|成绩)\s*[:：]?\s*\d+(?:\.\d+)?(?:\s*分)?/.test(text));
+      const valid = node.getAttribute('data-quiz-complete') === 'true' || (!/尚未|未公布|待批|待评|未完成|未提交|正在/.test(text) &&
+        (/(?:本次成绩|得分|成绩)\s*[:：]?\s*\d+(?:\.\d+)?(?:\s*分)?/.test(text) || /^(?:(?:章节)?测验\s*)?已完成$/.test(text)));
       if (!valid) return false;
       if (!before) return true;
       const prior = before.get(node);
@@ -292,7 +376,24 @@ function createCourseController(mode, token) {
     }
     return answers;
   }
-  function selected(control) { return control.matches('input') ? control.checked === true : control.getAttribute('aria-checked') === 'true'; }
+  function legacyChoice(control, box, expectedLetter = null) {
+    if (!control.matches('li[role="radio"],li[role="checkbox"]')) return null;
+    const qid = control.getAttribute('qid');
+    if (!/^\d+$/.test(qid || '')) return null;
+    const marker = all(control, '.num_option').find(node => node.getAttribute('name') === `answer${qid}`);
+    const storedValue = marker?.getAttribute('data');
+    const judgment = control.getAttribute('qtype') === '3';
+    const letter = judgment ? storedValue === 'true' ? 'A' : storedValue === 'false' ? 'B' : null : storedValue;
+    const input = all(box, 'input[type="hidden"]').filter(node => node.name === `answer${qid}`);
+    if (!/^[A-H]$/.test(letter || '') || (expectedLetter && letter !== expectedLetter) || input.length !== 1 ||
+        !(judgment ? /^(?:true|false)?$/ : /^[A-H,\s]*$/).test(input[0].value || '')) return null;
+    return { input: input[0], letter, storedValue, judgment };
+  }
+  function selected(control) {
+    if (control.matches('input')) return control.checked === true;
+    const legacy = legacyChoice(control, control.closest(questionSelector));
+    return legacy ? legacy.judgment ? legacy.input.value === legacy.storedValue : legacy.input.value.includes(legacy.letter) : control.getAttribute('aria-checked') === 'true';
+  }
   function applyAnswers(snapshot, answers) {
     for (const row of snapshot.rows) {
       const desired = answers.get(row.wire.id);
@@ -313,39 +414,82 @@ function createCourseController(mode, token) {
     return all(doc, 'button,input[type="submit"],a,[role="button"]')
       .find(node => visible(node) && !node.disabled && /^(?:提交|提交答案|交卷|提交作业|提交测验)$/.test(textOf(node) || node.value));
   }
+  function retryQuiz(entry, message) {
+    const record = state.quiz?.doc === entry.doc && state.quiz?.task === entry.task ? state.quiz : null;
+    if (!state.alive || record?.submitted || record?.answerApplied) return false;
+    const limit = Math.min(5, Math.max(0, Math.floor(Number(configs.quizRetryLimit) || 0)));
+    let retry = state.quizRetry;
+    if (!retry || retry.doc !== entry.doc || retry.task !== entry.task) retry = { doc: entry.doc, task: entry.task, attempts: 0, nextAt: 0 };
+    if (record?.signature && !retry.signature) retry.signature = record.signature;
+    if (retry.attempts >= limit) return false;
+    retry.attempts++;
+    const wait = Math.min(30000, Math.max(1, Number(configs.quizRetryDelayMs) || 3000));
+    retry.nextAt = Date.now() + wait; state.quizRetry = retry;
+    if (record) record.requested = false;
+    diagnostic(`${message}；${wait}毫秒后自动重试（${retry.attempts}/${limit}）`, 'warn');
+    return true;
+  }
   async function answerQuiz(record, snapshot) {
     record.requested = true;
     state.abort = new host.AbortController();
-    let expired = false;
-    state.requestTimer = host.setTimeout(() => { expired = true; state.abort?.abort(); fail('答题请求超时，未提交'); }, Math.min(900000, Math.max(1, Number(configs.requestTimeoutMs) || 900000)));
+    const controller = state.abort;
+    const timeout = new Promise((resolve, reject) => {
+      state.requestTimer = host.setTimeout(() => {
+        const error = new Error('答题请求超时，未提交'); error.retryable = true;
+        controller.abort(); reject(error);
+      }, Math.min(900000, Math.max(1, Number(configs.requestTimeoutMs) || 900000)));
+    });
     try {
-      const response = await host.fetch('http://127.0.0.1:37841/answer', {
-        method: 'POST', headers: { 'Content-Type': 'application/json', 'X-Xuexitong-Token': token },
-        body: JSON.stringify({ questions: snapshot.rows.map(r => r.wire) }), signal: state.abort.signal
-      });
-      if (!state.alive || expired) return;
-      if (!response.ok || response.status !== 200) throw new Error(`本地答题服务返回状态 ${Number(response.status) || '未知'}`);
-      const payload = await response.json();
-      if (!state.alive || expired) return;
+      const request = async () => {
+        let response;
+        try {
+          response = await host.fetch('http://127.0.0.1:37841/answer', {
+            method: 'POST', headers: { 'Content-Type': 'application/json', 'X-Xuexitong-Token': token },
+            body: JSON.stringify({ questions: snapshot.rows.map(r => r.wire) }), signal: controller.signal
+          });
+        } catch (error) { const failure = new Error('无法连接本地答题服务'); failure.retryable = true; throw failure; }
+        if (!response.ok || response.status !== 200) {
+          const error = new Error(`本地答题服务返回状态 ${Number(response.status) || '未知'}`);
+          error.retryable = [408, 425, 429].includes(response.status) || (response.status >= 500 && response.status <= 599); throw error;
+        }
+        try { return await response.json(); }
+        catch { const error = new Error('答题响应不是有效JSON'); error.retryable = true; throw error; }
+      };
+      const payload = await Promise.race([request(), timeout]);
+      if (!state.alive) return;
       if (!unchanged(snapshot)) throw new Error('请求期间题目或任务已改变，已取消');
       const answers = validateAnswers(payload, snapshot);
+      record.answerApplied = true;
       applyAnswers(snapshot, answers);
       const submit = submitControl(snapshot.entry.doc);
       if (!submit || !unchanged(snapshot) || completion(snapshot.entry)) throw new Error('当前测验或成绩状态不允许提交');
-      record.dialogsBefore = new Set(all(snapshot.entry.doc, dialogSelector).filter(visible));
+      record.dialogsBefore = new Set(submissionDialogs(snapshot.entry).filter(visible));
       record.gradesBeforeSubmit = gradeSnapshot(snapshot.entry);
       record.submitted = true; record.submitTime = Date.now(); submit.click();
+      state.quizRetry = null;
       diagnostic('答案已选择并提交，等待当前测验确认和成绩');
     } catch (error) {
-      if (state.alive) fail(error instanceof Error ? error.message : '答题请求失败，已停止');
+      if (state.alive) {
+        const message = error instanceof Error ? error.message : '答题请求失败';
+        if (!error?.retryable || !unchanged(snapshot) || !retryQuiz(snapshot.entry, message)) fail(message);
+      }
     } finally {
       host.clearTimeout(state.requestTimer); state.requestTimer = null; state.abort = null;
     }
   }
+  function submissionDialogs(entry) {
+    const nodes = [];
+    // The platform places work confirmations in the parent course document.
+    // Only this quiz's own document and ancestor chain can supply a dialog.
+    for (let current = entry; current; current = current.parent) nodes.push(...all(current.doc, current === entry ? dialogSelector : '#workpop'));
+    return nodes;
+  }
   function confirmSubmission(record, entry) {
     if (!record.submitted || record.confirmed || entry.doc !== record.doc || entry.task !== record.task || !unchanged(record.snapshot)) return;
-    const dialog = all(entry.doc, dialogSelector)
-      .find(d => visible(d) && !record.dialogsBefore.has(d) && /提交|交卷|未作答|请选择|请作答|答完/.test(textOf(d)));
+    const dialog = submissionDialogs(entry)
+      .find(d => visible(d) && !record.dialogsBefore.has(d) && /提交|交卷|未作答|请选择|请作答|答完/.test(textOf(d)) &&
+        (d.ownerDocument === entry.doc || (d.id === 'workpop' && all(d, '#popcontent').some(prompt =>
+          visible(prompt) && /^(?:确认|确定)提交(?:答案|作业|测验|试卷)?[?？]?$/.test(textOf(prompt))))));
     if (!dialog) return;
     if (/未作答|请选择|请作答|答完/.test(textOf(dialog))) { fail('页面提示仍有未完成题目，已停止确认'); return; }
     let button = all(dialog, 'button,a,[role="button"],#popok').find(e => visible(e) && /^(?:确定|确认|提交|确认提交)$/.test(textOf(e)));
@@ -355,15 +499,20 @@ function createCourseController(mode, token) {
     if (button && unchanged(record.snapshot)) { record.confirmed = true; button.click(); }
   }
   async function handleQuiz(entry, entries) {
+    if (state.quizRetry && (state.quizRetry.doc !== entry.doc || state.quizRetry.task !== entry.task)) state.quizRetry = null;
+    if (state.quizRetry && Date.now() < state.quizRetry.nextAt) return;
     let snapshot;
-    try { snapshot = extract(entry); state.loading = null; }
+    try { snapshot = extract(entry, true); state.loading = null; }
     catch (error) {
-      if (!error.incomplete) { fail(error.message); return; }
+      if (!error.incomplete) { if (!error.retryable || state.quiz?.requested || !retryQuiz(entry, error.message)) fail(error.message); return; }
       if (!state.loading || state.loading.doc !== entry.doc || state.loading.task !== entry.task) state.loading = { doc: entry.doc, task: entry.task, start: Date.now() };
       if (Date.now() - state.loading.start >= Math.min(120000, Math.max(1, Number(configs.quizLoadTimeoutMs) || 120000))) { fail('完整题目加载超时，已停止；未提交或跳过'); return; }
       const boxes = all(entry.doc, questionSelector).filter(visible);
       boxes[boxes.length - 1]?.scrollIntoView?.({ block: 'end', behavior: 'instant' });
       diagnostic('题目尚未全部显示，正在等待完整测验'); return;
+    }
+    if (snapshot && state.quizRetry?.signature && snapshot.signature !== state.quizRetry.signature) {
+      fail('重试等待期间题目内容已改变，已取消自动答题'); return;
     }
     const existing = state.quiz;
     const continuing = existing && existing.slot === entry.slot && existing.task === entry.task;
@@ -375,6 +524,9 @@ function createCourseController(mode, token) {
       existing.snapshot = snapshot; existing.signature = snapshot.signature; existing.doc = entry.doc;
     }
     const record = state.quiz;
+    if (snapshot && !record.requested && !record.submitted) {
+      record.snapshot = snapshot; record.signature = snapshot.signature; record.doc = entry.doc;
+    }
     // A score must be on the current visible task, never a hidden historical frame.
     if (completion(entry)) {
       if (snapshot && !record.submitted && !explicitCompletion(entry) && !completion(entry, record.gradesAtEntry)) {
