@@ -1,0 +1,21 @@
+# 私密信息 —— 绝对不要提交
+config.json
+config.local.json
+jev-api-key.txt
+wb-public-config.json
+.env
+.env.*
+cookies.json
+storage-state.json
+
+# 浏览器档案（含登录会话）
+edge-profile/
+edge-profile-*/
+
+# 依赖与产物
+node_modules/
+*.log
+runner-*.pid
+*.local.bak
+_smoke.cmd
+_portcheck.cmd

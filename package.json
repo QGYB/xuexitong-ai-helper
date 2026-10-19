@@ -1,0 +1,24 @@
+{
+  "name": "xuexitong-ai-helper",
+  "version": "1.1.0",
+  "description": "学习通自动刷课 + AI 答题（Jev 优先 + OpenAI 兼容/WorkBuddy 云服务兜底）",
+  "type": "module",
+  "scripts": {
+    "service": "node wb-answer-service.mjs",
+    "service:workbuddy": "node wb-answer-service.workbuddy.mjs",
+    "runner": "node wb-runner.mjs",
+    "start": "node wb-launch.mjs",
+    "test": "node scripts/run-tests.mjs",
+    "build:browser": "node scripts/build-browser.mjs",
+    "check:browser": "node scripts/build-browser.mjs --check"
+  },
+  "dependencies": {
+    "@tencent-ai/workbuddy-cloud-sdk": "0.1.4",
+    "playwright": "1.64.1",
+    "undici": "7.30.1"
+  },
+  "engines": {
+    "node": ">=22.12.0"
+  },
+  "license": "SEE LICENSE IN LICENSE"
+}

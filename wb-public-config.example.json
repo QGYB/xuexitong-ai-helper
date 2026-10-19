@@ -1,0 +1,6 @@
+{
+  "resourceId": "在此填你自己的 WorkBuddy 云服务 resourceId",
+  "endpoint": "https://你的应用名.app.workbuddy.host",
+  "oauthRelayBaseUrl": "https://www.workbuddy.cn/v2/as/genie-baas/oauth",
+  "publishableKey": "在此填你自己的 publishableKey（wbpk_ 开头，仅标识应用，不含密钥）"
+}

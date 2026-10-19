@@ -1,0 +1,14 @@
+{
+  "jev": {
+    "apiKey": "",
+    "proxy": "http://127.0.0.1:7897",
+    "model": "jev-latest",
+    "confidenceFloor": 0.6,
+    "noulProbabilityFloor": 0.6
+  },
+  "fallback": {
+    "baseUrl": "https://api.deepseek.com",
+    "apiKey": "",
+    "model": "deepseek-chat"
+  }
+}
