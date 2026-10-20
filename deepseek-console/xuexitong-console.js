@@ -369,7 +369,12 @@ function createCourseController(mode, token) {
     if (!control.matches('li[role="radio"],li[role="checkbox"]')) return null;
     const qid = control.getAttribute('qid');
     if (!/^\d+$/.test(qid || '')) return null;
-    const marker = all(control, '.num_option').find(node => node.getAttribute('name') === `answer${qid}`);
+    const multiple = control.getAttribute('role') === 'checkbox' && control.getAttribute('qtype') === '1';
+    const markers = all(control, '.num_option,.num_option_dx').filter(node =>
+      (node.matches('.num_option') && node.getAttribute('name') === `answer${qid}`) ||
+      (multiple && node.matches('.num_option_dx') && node.getAttribute('name') === `answercheck${qid}`));
+    if (markers.length !== 1) return null;
+    const marker = markers[0];
     const storedValue = marker?.getAttribute('data');
     const judgment = control.getAttribute('qtype') === '3';
     const letter = judgment ? storedValue === 'true' ? 'A' : storedValue === 'false' ? 'B' : null : storedValue;
@@ -534,7 +539,10 @@ function createCourseController(mode, token) {
     if (state.video !== video) { state.video = video; state.playAttempts = 0; state.lastTime = null; state.lastProgress = Date.now(); state.lastPlayAt = -Infinity; }
     if (configs.autoplay === false) return;
     if (configs.playbackRate !== null && Number.isFinite(Number(configs.playbackRate))) video.playbackRate = Math.max(0.25, Math.min(4, Number(configs.playbackRate)));
-    if (state.lastTime !== video.currentTime) { state.lastTime = video.currentTime; state.lastProgress = Date.now(); }
+    if (state.lastTime !== video.currentTime) {
+      if (Number.isFinite(state.lastTime) && Number.isFinite(video.currentTime) && video.currentTime > state.lastTime) state.playAttempts = 0;
+      state.lastTime = video.currentTime; state.lastProgress = Date.now();
+    }
     const stalled = Date.now() - state.lastProgress >= Math.max(1, Number(configs.guardNoProgressMs) || 7000);
     if ((!video.paused && !stalled) || video.ended) return;
     if (Date.now() - state.lastPlayAt < Math.max(1, Number(configs.guardResumeCooldownMs) || 1500)) return;

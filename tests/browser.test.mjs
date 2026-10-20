@@ -474,7 +474,7 @@ function legacyAriaQuiz({ hidden = false, type = '单选题', stale = false, let
   const controls = optionLetters.map((letter, i) => {
     const judgment = type === '判断题';
     const li = el('li', { role: type === '多选题' ? 'checkbox' : 'radio', qid: '123', qtype: type === '多选题' ? '1' : judgment ? '3' : '0' });
-    li.append(el('span', { class: 'num_option', name: 'answer123', data: judgment ? String(i === 0) : letter }, letter), el('a', {}, judgment ? i ? '错' : '对' : ['北京', '上海', '杭州', '深圳'][i]));
+    li.append(el('span', { class: type === '多选题' ? 'num_option_dx' : 'num_option', name: type === '多选题' ? 'answercheck123' : 'answer123', data: judgment ? String(i === 0) : letter }, letter), el('a', {}, judgment ? i ? '错' : '对' : ['北京', '上海', '杭州', '深圳'][i]));
     li.onClick = () => { if (stale) return;
       if (judgment) { answer.value = String(i === 0); controls.forEach((c,j) => c.setAttribute('aria-checked', String(i === j))); return; }
       const picked = type === '多选题' ? new Set(answer.value) : new Set();
@@ -604,3 +604,37 @@ for (const editable of [false,true]) {
     assert.equal(calls,0); assert.equal(next.clicks,editable?0:1);
   });
 }
+
+test('observed multiple-choice markers verify hidden CSV state even when aria-checked is never initialized', async () => {
+  const { doc, q, controls, answer } = legacyAriaQuiz({ type:'多选题', letters:['A','B','C','D'] }); answer.value='B,C';
+  controls.forEach((control,index) => { control.onClick = () => { const picked=new Set(answer.value.split(',').filter(Boolean));const letter='ABCD'[index];if(picked.has(letter))picked.delete(letter);else picked.add(letter);answer.value=[...picked].sort().join(','); }; });
+  const h=harness({ doc, fetch:async()=>({ok:true,status:200,json:async()=>({answers:[{id:1,letters:['A','C']}]})}) });
+  h.inject();await h.advance(20);assert.equal(answer.value,'A,C');assert.equal(q.submit.clicks,1);assert.deepEqual(controls.map(c=>c.clicks),[1,1,0,0]);assert.ok(controls.every(c=>c.getAttribute('aria-checked')===null));
+});
+
+test('a multiple-choice marker cannot bind to a different question answer field', async () => {
+  const {doc,q,controls}=legacyAriaQuiz({type:'多选题'}); controls[0].querySelector('.num_option_dx').setAttribute('name','answercheck456');
+  let calls=0;const h=harness({doc,fetch:async()=>{calls++;throw Error('must not request');}});const app=h.inject();await h.advance(20);
+  assert.equal(app.status,'stopped');assert.equal(calls,0);assert.equal(q.submit.clicks,0);
+});
+
+test('ambiguous multiple-choice markers are rejected before requesting answers', async () => {
+  const {doc,q,controls}=legacyAriaQuiz({type:'多选题'});controls[0].append(el('span',{class:'num_option_dx',name:'answercheck123',data:'B'},'B'));
+  let calls=0;const h=harness({doc,fetch:async()=>{calls++;throw Error('must not request');}});const app=h.inject();await h.advance(20);
+  assert.equal(app.status,'stopped');assert.equal(calls,0);assert.equal(q.submit.clicks,0);
+});
+
+test('successful video progress resets the consecutive playback recovery budget', async () => {
+  const doc=document();const video=el('video');video.paused=true;video.currentTime=0;video.ended=false;let calls=0;
+  video.play=async()=>{calls++;video.paused=false;};doc.body.append(video);
+  const h=harness({doc,config:{maxRetries:2,guardResumeCooldownMs:1,guardNoProgressMs:1000}});const app=h.inject();await h.advance(6);
+  for(let i=1;i<=4;i++){video.currentTime=i;video.paused=true;await h.advance(5);}
+  assert.equal(app.status,'running');assert.equal(calls,5);assert.equal(video.paused,false);
+});
+
+test('resolved play calls without any video progress still exhaust the recovery budget', async () => {
+  const doc=document();const video=el('video');video.paused=true;video.currentTime=0;video.ended=false;let calls=0;
+  video.play=async()=>{calls++;video.paused=false;};doc.body.append(video);
+  const h=harness({doc,config:{maxRetries:2,guardResumeCooldownMs:1,guardNoProgressMs:1}});const app=h.inject();await h.advance(25);
+  assert.equal(app.status,'stopped');assert.equal(calls,2);
+});
