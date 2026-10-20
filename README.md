@@ -6,7 +6,7 @@ Playwright 驱动本机 Edge，在课程播放页注入视频与章节练习脚�
 
 ## 环境与安装
 
-- Node.js **≥22.12.0**（含 npm），安装后 `node` 应可在 PATH 调用。
+- Node.js **≥22.12.0**。在终端使用 `node`、`npm ci` 或 `npm test` 时，Node 及 npm 需要能从该终端的 PATH 调用；安装后请重新打开终端。
 - 本机 Microsoft Edge；不需要下载 Playwright 的 Chromium。
 - Jev 访问受网络影响；默认 HTTP 代理为 `http://127.0.0.1:7897`，不是私人代理地址。
 
@@ -14,6 +14,8 @@ Playwright 驱动本机 Edge，在课程播放页注入视频与章节练习脚�
 npm ci
 npm test
 ```
+
+若 Node 由 IDE/宿主应用内置提供，开发工具终端与资源管理器双击时的 PATH 可能不同。在普通 PowerShell 中运行 `where.exe node` 和 `node --version` 核对；终端能用不代表双击入口也能找到。宿主内置 Node 不一定带 npm，安装依赖仍需可用的 npm。
 
 依赖精确版本与传递依赖由 package-lock.json 锁定。测试使用合成配置、模拟上游和临时本地端口，不需要真实 API Key、学习通登录或 Edge，不会真实答题提交。
 
@@ -69,6 +71,10 @@ Jev Key 留空时可仅使用兜底；JEV_API_KEY 是 Key 的环境变量后备�
 ```powershell
 npm start
 ```
+
+Windows 双击入口会通过 `_find-node.cmd` 依次查找 PATH、官方64位/32位安装目录、用户级 `Programs/nodejs` 和当前用户 WorkBuddy 的 Node 版本目录，使用首个实际可运行且满足 ≥22.12.0 的版本；不按目录名猜版本，不保证选择最高版本。启动窗口会显示选中的 Node 路径，查找失败或启动器报错时保留窗口供排查。此探测只适用于 `.cmd` 入口，`npm start` 仍依赖当前终端的 PATH。
+
+若只使用宿主内置 Node，宿主卸载或移动后可能需要重新安装 Node；入口不会自动下载 Node、安装依赖或修改系统 PATH。工作模式和实例参数仍可传入原入口，例如 `启动学习通AI挂机.cmd 2 --workbuddy`。
 
 只有 config.json 时自动选择 A/C；只有 wb-public-config.json 时自动选择 B。两个文件都有或都没有时必须明确选择，避免把 B 的配置误用于 A：
 
@@ -137,7 +143,7 @@ node wb-runner.mjs 2 --openai
 | wb-answer-service.workbuddy.mjs | Jev + WorkBuddy 服务 |
 | wb-service-core.mjs | 答案策略、校验、回环协议 |
 | wb-runner.mjs / wb-runner-runtime.mjs | Edge、注入、健康会话、实例锁 |
-| wb-launch.mjs / 启动学习通AI挂机.cmd | PATH Node 启动与模式选择 |
+| wb-launch.mjs / 启动学习通AI挂机.cmd / _find-node.cmd | Node 探测、启动与模式选择 |
 | browser/course-engine.js | 独立编写的播放器、测验与导航源文件 |
 | scripts/build-browser.mjs | 生成或只读核对两个浏览器入口 |
 | deepseek-console/xuexitong-console.js | 生成的视频/答题统一驱动 |
