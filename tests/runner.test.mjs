@@ -71,6 +71,14 @@ test('binding refuses foreign origins, child frames, and non-course paths before
   }
   await assert.rejects(binding(sourceFor('https://x.chaoxing.com/mooc2-ans/mycourse/studentstudy-evil')),/trusted/i);
 });
+test('binding and bootstrap support the exact manual exam route while excluding exam entry and lookalikes',async()=>{
+  let binding,calls=0;await installBridge({exposeBinding:async(_,fn)=>{binding=fn;}},{fetchImpl:async(...args)=>{calls++;return fetchPair()(...args);}});
+  const path='/exam-ans/exam/test/reVersionTestStartNew';
+  for(const url of [`https://mooc1.chaoxing.com${path}`,`https://mooc1.chaoxing.com${path}/`])assert.equal((await binding(sourceFor(url))).sessionId,'one');
+  const before=calls;for(const url of [`https://mooc1.chaoxing.com${path}-evil`,'https://mooc1.chaoxing.com/exam-ans/exam/test/examcode/examnotes',`https://evil.test${path}`,`http://mooc1.chaoxing.com${path}`])await assert.rejects(binding(sourceFor(url)),/trusted/i);
+  await assert.rejects(binding(sourceFor(`https://mooc1.chaoxing.com${path}`,true)),/trusted/i);assert.equal(calls,before);
+  const b=browserSandbox(`https://mooc1.chaoxing.com${path}`);vm.runInContext(createBootstrap(),b.ctx);await flush();assert.equal(b.window.consoleRuns,1);
+});
 
 test('new documents fetch the current session after a service restart and reject a navigation during fetch', async () => {
   let binding, id='one';

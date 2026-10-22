@@ -101,15 +101,19 @@ node wb-runner.mjs --openai
 
 首次在 Edge 中扫码登录，随后进入课程页。支持 `/mycourse/studentstudy` 和 `/mooc2-ans/mycourse/studentstudy` 两种路径。浏览器档案保存在 edge-profile/，不与日常 Edge 档案共用。
 
-通过本工具启动的 Edge 会在网页右下角常驻学习助手状态栏，登录页和课程目录也会显示；刷新、跳转或网页替换内容后自动恢复。进入支持的章节学习页后，“一键开始做题”按钮可用；答题结束或停止后保留状态栏。浏览器自身的设置页、工具栏等受保护界面不属于网页注入范围。已有浏览器实例需要关闭后通过本工具重新打开，才能加载更新后的启动注入。
+通过本工具启动的 Edge 会在网页右下角常驻学习助手状态栏，登录页和课程目录也会显示；刷新、跳转或网页替换内容后自动恢复。进入支持的章节学习页或单题答题页后，“一键开始做题”按钮可用；答题结束或停止后保留状态栏。浏览器自身的设置页、工具栏等受保护界面不属于网页注入范围。已有浏览器实例需要关闭后通过本工具重新打开，才能加载更新后的启动注入。
 
 ## 默认脚本与恢复边界
+
+状态栏提供 **模式：章节测验 / 考试答题** 切换按钮，初始按页面路径选择。切换时停止当前答题；模式与页面不对应时禁用开始按钮并说明原因，不把两种页面交给同一套 DOM 提取逻辑。
 
 课程右下角状态文字左侧提供 **一键开始做题**：可直接处理当前已打开的测验，或尝试打开当前章节的测验页签；不必先由脚本播放完视频。仅处理平台允许作答的当前章节，保留单选、多选、判断、完整性检查及有限重试。提交并确认当前成绩后停留在本节，不自动切到下一节；继续自动挂机可刷新课程页。
 
 按钮也可在控制器已停止后重新尝试当前测验。进行中重复点击不会重复请求或提交；手动切换章节会取消本次独立答题。找不到当前测验、题目结构无法确认或服务不可用时显示原因，不能绕过平台限制。独立 V3 没有本地答题能力，因此不显示此按钮。
 
-默认由 `deepseek-console/xuexitong-console.js` 统一驱动播放、切节和答题；**保持平台默认播放速度**，不是自动1.5倍。修改 V3 的 playbackRate 不影响默认模式。浏览器部分由本项目独立编写的 browser/course-engine.js 生成两个入口，使用原生 DOM API，不依赖 jQuery 或上游脚本。
+考试答题模式适配 `/exam-ans/exam/test/reVersionTestStartNew` 的单题视图，用于获授权的练习/测试。首次进入保持待机，点击后复用同一本地答题服务，支持单选、多选、判断及显示字母与内部保存值打乱的选项。点击平台“下一题”保存当前答案并翻页，在同一标签页通过短期 sessionStorage 进度继续；进度不保存令牌、源码或模型答案。切换试卷、异常响应、未知题型或停止操作会取消继续。该模式不点击整卷提交按钮，末题交给用户检查并手动交卷。
+
+默认由 `deepseek-console/xuexitong-console.js` 统一驱动播放、切节和答题；**保持平台默认播放速度**，不是自动1.5倍。修改 V3 的 playbackRate 不影响默认模式。浏览器入口由独立编写的 browser/course-engine.js、browser/exam-engine.js 和共享状态栏生成，使用原生 DOM API，不依赖 jQuery 或上游脚本。
 
 runner 设置唯一 console 驱动标志。V3 默认不注入；`V3_ENABLED=1` 是保留的兼容装载开关，V3 发现 console 驱动后会退出，不同时运行两个播放器。独立 V3 可单独播放视频、查找测验页签并等待当前测验完成；默认1.5倍速，不会替你答题或超时跳过测验。不能把它理解成双脚本组合。
 
@@ -133,7 +137,7 @@ node wb-runner.mjs 2 --openai
 - 服务仅监听 IPv4回环 `127.0.0.1:37841`，校验回环来源与 Host。
 - runner 的无凭据 `GET /health` 获取200身份信息，然后 `GET /script` 获取同一 sessionId 的脚本。两端点不开放跨站 CORS；/script 拒绝 Origin 和浏览器 Fetch Metadata，返回 JSON、no-store、nosniff，不可作为跨站脚本载入。
 - 随机令牌每次服务启动生成，只在内存和运行时响应中传递；磁盘源码永久保留 `__LOCAL_TOKEN__`。页面 `/health` 和 `/answer` 仍校验 HTTPS Chaoxing Origin 与令牌。
-- Playwright 绑定仅向可信顶层课程页交付脚本，每次新文档重新核对健康和脚本会话；源码不写入任意站点的全局变量。
+- Playwright 绑定仅向 HTTPS Chaoxing 顶层章节学习页及上述精确单题答题路径交付脚本；考试说明页、相似后缀路径和子框架均不交付。每次新文档重新核对健康和脚本会话，源码不写入任意站点的全局变量。
 - 同一主机的其他程序不是这套回环协议抵御的攻击者；它们可访问本地 bootstrap。API Key 不传入浏览器，只由 Node 服务读取配置/环境变量。
 - 私密配置、环境文件、所有 edge-profile-*、会话导出、PID、日志及 node_modules 被忽略；忽略规则不能替代发布前秘密扫描。
 
@@ -151,6 +155,8 @@ node wb-runner.mjs 2 --openai
 | wb-runner.mjs / wb-runner-runtime.mjs | Edge、注入、健康会话、实例锁 |
 | wb-launch.mjs / 启动学习通AI挂机.cmd / _find-node.cmd | Node 探测、启动与模式选择 |
 | browser/course-engine.js | 独立编写的播放器、测验与导航源文件 |
+| browser/exam-engine.js | 手动启动的单题答题适配、选项映射及跨页继续 |
+| browser/status-panel.mjs | 常驻状态栏与答题模式切换 |
 | scripts/build-browser.mjs | 生成或只读核对两个浏览器入口 |
 | deepseek-console/xuexitong-console.js | 生成的视频/答题统一驱动 |
 | xuexitong_v3.user.js | 生成的独立 V3 播放器 |
@@ -160,7 +166,7 @@ node wb-runner.mjs 2 --openai
 
 ## 浏览器开发与边界
 
-修改 browser/course-engine.js 后运行 `npm run build:browser`；`npm run check:browser` 只读验证生成物与源码一致。两个入口不分别手工修改。
+修改 browser/ 内源码后运行 `npm run build:browser`；`npm run check:browser` 只读验证生成物与源码一致。两个入口不分别手工修改。
 
 支持单选、多选和判断题。选项须有可验证的原生 checked、aria-checked，或同题隐藏答案字段状态；判断题支持 true/false 存储，多选支持组合字母。父容器的 aria-hidden 不单独视为视觉隐藏，CSS 隐藏和不可操作选项仍被拒绝。无法验证实际选择结果时停止提交。
 

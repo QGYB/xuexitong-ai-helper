@@ -102,13 +102,13 @@ function trustedSource(source) {
     try {
         if (!source.frame || !source.page || source.frame !== source.page.mainFrame()) return false;
         const url = new URL(source.frame.url());
-        return url.protocol === 'https:' && /(^|\.)chaoxing\.com$/i.test(url.hostname) && /^\/(?:mooc2-ans\/)?mycourse\/studentstudy\/?$/.test(url.pathname);
+        return url.protocol === 'https:' && /(^|\.)chaoxing\.com$/i.test(url.hostname) && /^\/(?:(?:mooc2-ans\/)?mycourse\/studentstudy|exam-ans\/exam\/test\/reVersionTestStartNew)\/?$/.test(url.pathname);
     } catch { return false; }
 }
 
 export async function installBridge(context, options = {}) {
     await context.exposeBinding('__WBGetScripts', async source => {
-        if (!trustedSource(source)) throw new Error('Script access requires a trusted top-level Chaoxing course.');
+        if (!trustedSource(source)) throw new Error('Script access requires a trusted top-level Chaoxing study page.');
         const documentUrl = source.frame.url();
         const data = await getScripts(options);
         if (!trustedSource(source) || source.frame.url() !== documentUrl) throw new Error('Frame changed before trusted script delivery.');
@@ -119,7 +119,7 @@ export async function installBridge(context, options = {}) {
 // This function is serialized into every document. It contains no script source or local token.
 function bootstrap({v3Enabled}) {
     const trusted = () => window === window.top && location.protocol === 'https:' &&
-        /(^|\.)chaoxing\.com$/i.test(location.hostname) && /^\/(?:mooc2-ans\/)?mycourse\/studentstudy\/?$/.test(location.pathname);
+        /(^|\.)chaoxing\.com$/i.test(location.hostname) && /^\/(?:(?:mooc2-ans\/)?mycourse\/studentstudy|exam-ans\/exam\/test\/reVersionTestStartNew)\/?$/.test(location.pathname);
     if (!trusted() || window.__WB_BOOTED) return;
     window.__WB_BOOTED = true;
     async function boot() {

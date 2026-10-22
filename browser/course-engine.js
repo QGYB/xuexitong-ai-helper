@@ -648,6 +648,7 @@ function createCourseController(mode, token, initialFlow = 'auto') {
   }
   function answerCurrentQuiz() {
     if (mode !== 'console' || state.destroyed || host.app !== api) return api;
+    if (panel.selectedMode !== 'course') { diagnostic('请切换到章节测验模式'); return api; }
     if (state.alive && state.flow === 'answer-only') return api;
     if (!state.alive) return createCourseController(mode, token, 'answer-only');
     if (state.transition?.kind === 'next') { diagnostic('任务正在切换，请加载完成后再点一键开始做题'); return api; }
@@ -670,7 +671,7 @@ function createCourseController(mode, token, initialFlow = 'auto') {
   host.app = api;
   host.addEventListener('pagehide', onHide);
   const panel = installStatusPanel({withAnswer:mode === 'console'});
-  panel.bind(answerCurrentQuiz);
+  panel.bind(answerCurrentQuiz, {mode:'course',onModeChange:()=>stop('已切换答题模式')});
   if (state.flow === 'answer-only') state.answerScope = courseScope();
   diagnostic('控制器已启动');
   if (mode === 'console') {
