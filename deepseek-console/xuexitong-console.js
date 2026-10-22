@@ -817,10 +817,23 @@ function createManualExamController(token) {
     if(!/^\d+$/.test(qid||'')||!visible(title))throw new Error('无法识别当前题号或题干');
     const fields=all(box,'input[type="hidden"]');
     const find=name=>fields.filter(e=>e.name===name);
-    const kinds=find(`type${qid}`),inputs=find(`answer${qid}`);
-    if(kinds.length!==1||inputs.length!==1)throw new Error('当前题型或答案字段不唯一');
-    const type={'0':'单选题','1':'多选题','3':'判断题'}[kinds[0].value];
-    if(!type)throw new Error('当前题型尚不支持，请手动作答；支持单选、多选和判断');
+    // The question ID links fields; question position never determines the type.
+    const kinds=find(`type${qid}`),names=find(`typeName${qid}`);
+    if(kinds.length>1||names.length>1)throw new Error('当前题型字段重复');
+    const normalizeType=value=>{
+      const match=clean(value).match(/^(?:\d+\s*[.、．)）]\s*)?[（(【\[]?\s*(单选|多选|判断)(?:题)?(?=$|[\s,，:：)）】\]])/);
+      return match?`${match[1]}题`:'';
+    };
+    const named=names.length?normalizeType(names[0].value):'';
+    const numeric=kinds.length?{'0':'单选题','1':'多选题','3':'判断题'}[kinds[0].value]:'';
+    if((names.length&&!named)||(kinds.length&&!numeric))throw new Error('当前题型尚不支持，请手动作答；支持单选、多选和判断');
+    const types=new Set([named,normalizeType(text(title)),numeric].filter(Boolean));
+    if(types.size!==1)throw new Error(types.size?'网页题型标记不一致，已停止':'无法读取网页题型标记，已停止');
+    const type=[...types][0];
+    // Multi-choice uses name="answers<qid>" with id="answer<qid>" in the exam view.
+    // Accept the older singular name too, but never choose between competing fields.
+    const inputs=fields.filter(e=>e.name===`answer${qid}`||e.name===`answers${qid}`);
+    if(inputs.length!==1||(type!=='多选题'&&inputs[0].name!==`answer${qid}`))throw new Error('当前答案字段缺失、重复或与题型不匹配');
     const question=text(title).replace(/^\d+\s*[.、．)）]\s*/,'').replace(/^[（(][^）)]*(?:单选题|多选题|判断题)[^）)]*[）)]\s*/,'').trim();
     const nodes=all(box,'.answerBg').filter(visible);
     if(nodes.length<2||nodes.length>8||(type==='判断题'&&nodes.length!==2))throw new Error('当前题目选项不完整');

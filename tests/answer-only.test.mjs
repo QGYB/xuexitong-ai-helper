@@ -140,6 +140,36 @@ test('manual exam multi choice verifies hidden stored values and never submits t
   h.input.value='AB';const app=h.inject();answerButton(h).click();await h.advance(15);
   assert.equal(h.input.value,'BD');assert.equal(h.choices[2].clicks,0);assert.equal(h.choices[1].clicks,1);assert.equal(h.submit.clicks,0);assert.equal(app.status,'stopped');
 });
+test('manual exam multi choice accepts the platform plural answer name and singular element ID',async()=>{
+  const h=examFixture({type:'多选题',stored:['D','C','A','B'],fetch:async()=>({ok:true,status:200,json:async()=>({answers:[{id:1,letters:['B','C','D']}]})})});
+  h.input.name='answers100';h.input.setAttribute('name','answers100');h.input.id='answer100';h.input.value='DC';
+  const app=h.inject();answerButton(h).click();await h.advance(15);
+  assert.equal(h.input.value,'ABC');assert.deepEqual(h.choices.map(c=>c.clicks),[1,0,1,1]);
+  assert.equal(h.nextButton.clicks,1);assert.equal(h.submit.clicks,0);app.stop();
+});
+test('manual exam multi choice rejects simultaneous singular and plural answer fields',async()=>{
+  let calls=0;const h=examFixture({type:'多选题',fetch:async()=>{calls++;throw Error('ambiguous fields must not request answers');}});
+  h.box.append(el('input',{type:'hidden',name:'answers100',id:'answer100',value:''}));
+  const app=h.inject();answerButton(h).click();await h.advance(15);
+  assert.equal(app.status,'stopped');assert.equal(calls,0);assert.equal(h.input.value,'');assert.equal(h.nextButton.clicks,0);
+});
+for(const [start,type,stored] of [[2,'多选题',['D','B','A','C']],[70,'单选题',['C','A','D','B']],[5,'判断题',['true','false']]])
+test(`manual exam identifies ${type} from page metadata at arbitrary position ${start+1}`,async()=>{
+  let sent;const h=examFixture({start,type,stored,next:false,fetch:async(_,options)=>{sent=JSON.parse(options.body).questions[0];return {ok:true,status:200,json:async()=>({answers:[{id:1,letters:['A']}]})};}});
+  h.box.append(el('input',{type:'hidden',name:`typeName${100+start}`,value:type}));
+  const app=h.inject();answerButton(h).click();await h.advance(15);assert.equal(sent.type,type);assert.equal(app.status,'stopped');assert.equal(h.input.value,stored[0]);
+});
+test('manual exam can identify the textual typeName field without a numeric type field',async()=>{
+  let sent;const h=examFixture({type:'多选题',next:false,fetch:async(_,options)=>{sent=JSON.parse(options.body).questions[0];return {ok:true,status:200,json:async()=>({answers:[{id:1,letters:['B','D']}]})};}});
+  h.box.querySelector('input[name="type100"]').remove();h.title.textContent='1. 合成题干';
+  h.box.append(el('input',{type:'hidden',name:'typeName100',value:'多选'}));
+  h.inject();answerButton(h).click();await h.advance(15);assert.equal(sent.type,'多选题');assert.equal(h.input.value,'AD');assert.equal(h.submit.clicks,0);
+});
+test('manual exam rejects contradictory textual and numeric type markers',async()=>{
+  let calls=0;const h=examFixture({type:'多选题',fetch:async()=>{calls++;throw Error('conflicting types must not request answers');}});
+  h.box.append(el('input',{type:'hidden',name:'typeName100',value:'单选题'}));
+  const app=h.inject();answerButton(h).click();await h.advance(15);assert.equal(calls,0);assert.equal(app.status,'stopped');assert.equal(h.nextButton.clicks,0);assert.equal(h.input.value,'');
+});
 test('manual exam judgment supports reversed displayed order',async()=>{
   const h=examFixture({type:'判断题',stored:['false','true'],next:false,fetch:async()=>({ok:true,status:200,json:async()=>({answers:[{id:1,letters:['B']}]})})});
   h.inject();answerButton(h).click();await h.advance(15);assert.equal(h.input.value,'true');assert.equal(h.submit.clicks,0);
