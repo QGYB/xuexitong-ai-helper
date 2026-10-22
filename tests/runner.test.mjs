@@ -85,7 +85,7 @@ test('new documents fetch the current session after a service restart and reject
 function browserSandbox(url,{child=false,readyState='complete',jquery=true}={}){
   const events={};let calls=0;const errors=[];
   const document=fixtureDocument(url);document.readyState=readyState;
-  const window={document,location:new URL(url),addEventListener:(name,callback)=>{events[name]=callback;},MutationObserver:class{constructor(callback){events.mutation=callback;}observe(){}},jQuery:jquery?()=>{}:undefined,__WBGetScripts:async()=>{calls++;return scripts();}};
+  const window={document,location:new URL(url),addEventListener:(name,callback)=>{events[name]=callback;},MutationObserver:class{constructor(callback){events.mutation=callback;}observe(){}disconnect(){}},jQuery:jquery?()=>{}:undefined,__WBGetScripts:async()=>{calls++;return scripts();}};
   window.top=child?{}:window;
   const ctx=vm.createContext({window,location:window.location,document,console:{error:(...args)=>errors.push(args),log:()=>{}},setInterval:callback=>{events.tick=callback;return 1;},clearInterval:()=>{delete events.tick;}});
   return {window,document,ctx,events,get calls(){return calls;},errors};
@@ -107,6 +107,23 @@ test('bootstrap exposes no sources or calls on untrusted pages and subframes', a
     const b=browserSandbox(url,{child});vm.runInContext(createBootstrap({v3Enabled:true}),b.ctx);await flush();
     assert.equal(b.calls,0);assert.equal(b.window.__WB_DRIVER,undefined);assert.equal(b.window.__WB_CS_SRC,undefined);assert.equal(b.window.__WB_V3_SRC,undefined);
   }
+});
+test('a popup reusing its initial blank Window attaches status to the current document',async()=>{
+  const b=browserSandbox('about:blank');vm.runInContext(createBootstrap(),b.ctx);
+  const oldPanel=b.document.querySelector('#xuexitong-independent-status');assert.ok(oldPanel);
+  const current=fixtureDocument('https://mooc1.chaoxing.com/exam-ans/exam/test/examcode/examnotes');
+  b.window.document=current;b.ctx.document=current;b.window.location=new URL(current.URL);b.ctx.location=b.window.location;
+  vm.runInContext(createBootstrap(),b.ctx);await flush();
+  assert.ok(current.querySelector('#xuexitong-independent-status'),'the initial blank document must not retain the active UI');
+  assert.equal(current.querySelectorAll('#xuexitong-independent-status').length,1);assert.equal(b.calls,0);
+});
+test('document load repairs a reused blank Window even without a second init script',()=>{
+  const b=browserSandbox('about:blank');vm.runInContext(createBootstrap(),b.ctx);
+  const current=fixtureDocument('https://mooc1.chaoxing.com/exam-ans/exam/test/examcode/examnotes');
+  b.window.document=current;b.ctx.document=current;b.events.DOMContentLoaded();
+  assert.ok(current.querySelector('#xuexitong-independent-status'));
+  assert.equal(b.window.__WBStatusPanel.status.ownerDocument,current);
+  assert.equal(b.calls,0);assert.equal(current.querySelector('#xuexitong-answer-current').disabled,true);
 });
 test('trusted bootstrap waits for document load and jQuery, then chooses console before optional V3', async () => {
   const b=browserSandbox('https://x.chaoxing.com/mycourse/studentstudy?chapterId=1',{readyState:'loading',jquery:false});

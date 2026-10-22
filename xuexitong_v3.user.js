@@ -14,9 +14,11 @@
 (() => {
 'use strict';
 function installStatusPanel({withAnswer = true} = {}) {
-  const host = window, doc = host.document;
+  const host = window;
+  let doc = host.document;
   if (host !== host.top) return null;
-  if (host.__WBStatusPanel) { host.__WBStatusPanel.ensure(); return host.__WBStatusPanel; }
+  if (host.__WBStatusPanel?.status.ownerDocument === doc) { host.__WBStatusPanel.ensure(); return host.__WBStatusPanel; }
+  host.__WBStatusPanel?.dispose?.();
   const status = doc.createElement('div');
   status.id = 'xuexitong-independent-status';
   status.setAttribute('role', 'group'); status.setAttribute('aria-label', '学习助手');
@@ -26,7 +28,7 @@ function installStatusPanel({withAnswer = true} = {}) {
   message.style.cssText = 'min-width:0;max-width:360px;overflow-wrap:anywhere;';
   message.textContent = '学习助手已就绪，进入章节学习页后可答题';
   const button = withAnswer ? doc.createElement('button') : null;
-  let owner = null;
+  let owner = null, observer;
   if (button) {
     button.id = 'xuexitong-answer-current'; button.type = 'button'; button.textContent = '一键开始做题';
     button.title = '进入章节学习页后，点击处理当前测验，完成后停留';
@@ -35,11 +37,23 @@ function installStatusPanel({withAnswer = true} = {}) {
   }
   status.append(message);
   function ensure() {
+    // Popup navigation may reuse its initial about:blank Window with a new Document.
+    if (host.document !== doc) {
+      doc = host.document; owner = null;
+      observer?.disconnect(); observer?.observe(doc, {childList:true, subtree:true});
+      if (button) { button.onclick = null; button.disabled = true; button.style.opacity = '0.6'; }
+      message.textContent = '学习助手已就绪，进入章节学习页后可答题';
+    }
     const root = doc.documentElement || doc.body;
     if (root && !doc.contains(status)) root.append(status);
   }
   const panel = {
     status, message, button, ensure,
+    dispose() {
+      observer?.disconnect();
+      host.removeEventListener?.('DOMContentLoaded', ensure); host.removeEventListener?.('pageshow', ensure);
+      status.remove();
+    },
     bind(handler) { owner = handler; if (button) button.onclick = handler; },
     update(handler, text, disabled) {
       if (owner !== handler) return;
@@ -54,8 +68,9 @@ function installStatusPanel({withAnswer = true} = {}) {
     }
   };
   host.__WBStatusPanel = panel;
-  if (host.MutationObserver) new host.MutationObserver(ensure).observe(doc, {childList:true, subtree:true});
-  host.addEventListener('DOMContentLoaded', ensure, {once:true});
+  if (host.MutationObserver) { observer = new host.MutationObserver(ensure); observer.observe(doc, {childList:true, subtree:true}); }
+  host.addEventListener('DOMContentLoaded', ensure);
+  host.addEventListener('pageshow', ensure);
   ensure();
   return panel;
 }
