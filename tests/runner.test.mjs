@@ -1,12 +1,13 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import {readFileSync, mkdtempSync, writeFileSync, existsSync, rmSync} from 'node:fs';
+import {readFileSync, mkdtempSync, mkdirSync, writeFileSync, existsSync, rmSync} from 'node:fs';
 import {tmpdir} from 'node:os';
 import {join} from 'node:path';
 import vm from 'node:vm';
 import {EventEmitter} from 'node:events';
 import {spawn} from 'node:child_process';
 import {pathToFileURL} from 'node:url';
+import {document as fixtureDocument} from './dom.mjs';
 import {parseOptions, selectMode, checkNodeVersion, probeService, waitForService, getScripts, installBridge, createBootstrap, acquireInstance, manageContext, launchApplication, runRunner} from '../wb-runner-runtime.mjs';
 
 const health = (sessionId='one', mode='openai') => ({ok:true,service:'xuexitong-ai-helper',protocol:1,sessionId,mode});
@@ -83,12 +84,24 @@ test('new documents fetch the current session after a service restart and reject
 
 function browserSandbox(url,{child=false,readyState='complete',jquery=true}={}){
   const events={};let calls=0;const errors=[];
-  const window={addEventListener:(name,callback)=>{events[name]=callback;},jQuery:jquery?()=>{}:undefined,__WBGetScripts:async()=>{calls++;return scripts();}};
+  const document=fixtureDocument(url);document.readyState=readyState;
+  const window={document,location:new URL(url),addEventListener:(name,callback)=>{events[name]=callback;},MutationObserver:class{constructor(callback){events.mutation=callback;}observe(){}},jQuery:jquery?()=>{}:undefined,__WBGetScripts:async()=>{calls++;return scripts();}};
   window.top=child?{}:window;
-  const ctx=vm.createContext({window,location:new URL(url),document:{readyState},console:{error:(...args)=>errors.push(args),log:()=>{}},setInterval:callback=>{events.tick=callback;return 1;},clearInterval:()=>{delete events.tick;}});
-  return {window,ctx,events,get calls(){return calls;},errors};
+  const ctx=vm.createContext({window,location:window.location,document,console:{error:(...args)=>errors.push(args),log:()=>{}},setInterval:callback=>{events.tick=callback;return 1;},clearInterval:()=>{delete events.tick;}});
+  return {window,document,ctx,events,get calls(){return calls;},errors};
 }
 const flush=()=>new Promise(resolve=>setImmediate(resolve));
+test('startup status exists on login, overview and blank pages without requesting answer credentials',async()=>{
+  for(const url of ['https://passport2.chaoxing.com/login','https://mooc2-ans.chaoxing.com/mooc2-ans/mycourse/stu','about:blank','https://example.com/']){
+    const b=browserSandbox(url);vm.runInContext(createBootstrap(),b.ctx);await flush();
+    const panel=b.document.querySelector('#xuexitong-independent-status');assert.ok(panel,'startup status must exist before entering a course');
+    assert.equal(panel.querySelector('#xuexitong-answer-current').disabled,true);assert.equal(b.calls,0);
+    vm.runInContext(createBootstrap(),b.ctx);assert.equal(b.document.querySelectorAll('#xuexitong-independent-status').length,1);
+    panel.remove();b.events.mutation();assert.equal(b.document.querySelector('#xuexitong-independent-status'),panel);
+  }
+  const child=browserSandbox('https://mooc1.chaoxing.com/mycourse/studentstudy',{child:true});vm.runInContext(createBootstrap(),child.ctx);
+  assert.equal(child.document.querySelector('#xuexitong-independent-status'),null);
+});
 test('bootstrap exposes no sources or calls on untrusted pages and subframes', async () => {
   for(const [url,child] of [['https://evil.test/mycourse/studentstudy',false],['http://x.chaoxing.com/mycourse/studentstudy',false],['https://x.chaoxing.com/mycourse/studentstudy',true]]){
     const b=browserSandbox(url,{child});vm.runInContext(createBootstrap({v3Enabled:true}),b.ctx);await flush();
@@ -187,6 +200,7 @@ test('launcher Ctrl+C gracefully closes a real synthetic Node runner and removes
 for (const stopKind of ['IPC','SIGINT','SIGTERM']) test(`runner handles ${stopKind} during its first service wait and releases the startup lock`, async t => {
   const dir=tempDir(t);
   for(const name of ['wb-runner.mjs','wb-runner-runtime.mjs'])writeFileSync(join(dir,name),readFileSync(new URL(`../${name}`,import.meta.url)));
+  mkdirSync(join(dir,'browser'));writeFileSync(join(dir,'browser/status-panel.mjs'),readFileSync(new URL('../browser/status-panel.mjs',import.meta.url)));
   const code=`process.argv=['node','wb-runner.mjs','--openai'];globalThis.fetch=async()=>{process.send({type:'waiting'});return new Promise(()=>{});};
     process.on('message',m=>{if(m?.type==='test:signal')process.emit(m.signal);});
     await import(${JSON.stringify(pathToFileURL(join(dir,'wb-runner.mjs')).href)});

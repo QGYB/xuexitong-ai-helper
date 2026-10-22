@@ -95,6 +95,14 @@ test('pagehide and replacement prevent stale buttons from restarting a controlle
   assert.equal(h.win.app,second);assert.equal(h.timers.size,0);assert.equal(second.status,'stopped');
 });
 
+test('destroying a controller keeps one visible inert status panel until another controller binds',async()=>{
+  const h=harness(),first=h.inject(),button=answerButton(h),panel=button.parentElement;
+  first.destroy();assert.equal(h.doc.querySelector('#xuexitong-independent-status'),panel);
+  assert.equal(button.disabled,true);button.click();assert.equal(h.win.app,first);
+  const second=h.inject();await h.flush();assert.equal(h.doc.querySelector('#xuexitong-independent-status'),panel);
+  assert.equal(h.doc.querySelectorAll('#xuexitong-independent-status').length,1);assert.equal(answerButton(h).disabled,false);assert.notEqual(first,second);
+});
+
 test('standalone still requires a healthy authenticated service and V3 exposes no answer button',async()=>{
   const doc=document(),q=quiz(doc);let calls=0;
   const h=harness({doc,health:async()=>({ok:false,status:403}),fetch:async()=>{calls++;throw Error('unauthorized');}});

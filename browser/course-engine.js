@@ -86,11 +86,7 @@ function createCourseController(mode, token, initialFlow = 'auto') {
     return found;
   }
   function diagnostic(message, level = 'log') {
-    statusMessage.textContent = message;
-    if (answerButton) {
-      answerButton.disabled = state.alive && state.flow === 'answer-only';
-      answerButton.style.opacity = answerButton.disabled ? '0.6' : '1';
-    }
+    panel.update(answerCurrentQuiz, message, state.alive && state.flow === 'answer-only');
     if (state.message === message) return;
     state.message = message;
     host.console[level](`[学习助手] ${message}`);
@@ -660,34 +656,21 @@ function createCourseController(mode, token, initialFlow = 'auto') {
     diagnostic('正在单独处理当前章节测验，完成后停留');
     return run();
   }
-  const onHide = () => { state.destroyed = true; stop('页面已离开，已取消所有工作'); };
+  const onHide = () => { state.destroyed = true; stop('页面已离开，已取消所有工作'); panel.release(answerCurrentQuiz); };
   const api = {
     configs, get status() { return state.status; }, get message() { return state.message; },
     inspectQuiz() { const entry = quizEntry(documents()); if (!entry) return null; try { const snapshot = extract(entry); return snapshot?.rows.map(row => row.wire) || []; } catch (error) { return { error: error.message }; } },
     run, play: run, answerCurrentQuiz,
     nextUnit() { if (state.alive) { reconcile(); schedule(); } return api; },
     stop,
-    destroy() { state.destroyed = true; stop('控制器已替换或销毁'); host.removeEventListener('pagehide', onHide); status.remove?.(); }
+    destroy() { state.destroyed = true; stop('控制器已替换或销毁'); host.removeEventListener('pagehide', onHide); panel.release(answerCurrentQuiz); }
   };
   if (mode === 'console') { host.__WB_DRIVER = 'console'; host.__xuexitongConsoleDeepSeek = api; }
   else host.__xuexitongPlayerV3 = api;
   host.app = api;
   host.addEventListener('pagehide', onHide);
-  const status = host.document.createElement('div');
-  status.id = 'xuexitong-independent-status'; status.setAttribute('role', 'group'); status.setAttribute('aria-label', '学习助手');
-  status.style.cssText = 'position:fixed;bottom:8px;right:8px;z-index:2147483647;display:flex;align-items:center;gap:8px;background:#fff;color:#222;border:1px solid #777;border-radius:6px;padding:8px;max-width:calc(100vw - 16px);box-sizing:border-box;font:13px sans-serif';
-  const statusMessage = host.document.createElement('span');
-  statusMessage.setAttribute('role', 'status'); statusMessage.setAttribute('aria-live', 'polite');
-  statusMessage.style.cssText = 'min-width:0;max-width:360px;overflow-wrap:anywhere;';
-  const answerButton = mode === 'console' ? host.document.createElement('button') : null;
-  if (answerButton) {
-    answerButton.id = 'xuexitong-answer-current'; answerButton.type = 'button'; answerButton.textContent = '一键开始做题';
-    answerButton.title = '只处理当前章节测验，完成后停留';
-    answerButton.style.cssText = 'flex-shrink:0;white-space:nowrap;border:1px solid #16825d;border-radius:4px;background:#16825d;color:#fff;padding:6px 10px;font:inherit;cursor:pointer;';
-    answerButton.onclick = answerCurrentQuiz; status.append(answerButton);
-  }
-  status.append(statusMessage);
-  (host.document.body || host.document.documentElement).append(status);
+  const panel = installStatusPanel({withAnswer:mode === 'console'});
+  panel.bind(answerCurrentQuiz);
   if (state.flow === 'answer-only') state.answerScope = courseScope();
   diagnostic('控制器已启动');
   if (mode === 'console') {

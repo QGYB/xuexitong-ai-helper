@@ -4,6 +4,7 @@ import {join, resolve} from 'node:path';
 import {randomUUID} from 'node:crypto';
 import {spawn} from 'node:child_process';
 import {setTimeout as delay} from 'node:timers/promises';
+import {installStatusPanel} from './browser/status-panel.mjs';
 
 const BASE = 'http://127.0.0.1:37841';
 const SERVICE = 'xuexitong-ai-helper';
@@ -146,7 +147,7 @@ function bootstrap({v3Enabled}) {
     else window.addEventListener('load', () => { void boot(); }, {once: true});
 }
 export function createBootstrap({v3Enabled = false} = {}) {
-    return `(${bootstrap.toString()})(${JSON.stringify({v3Enabled: Boolean(v3Enabled)})});`;
+    return `(${installStatusPanel.toString()})();\n(${bootstrap.toString()})(${JSON.stringify({v3Enabled: Boolean(v3Enabled)})});`;
 }
 
 export function acquireInstance(directory, instance, pid = process.pid) {
