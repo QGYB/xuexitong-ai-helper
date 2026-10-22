@@ -12,6 +12,7 @@ export class Element {
   append(...children) { for (const child of children) { child.parentElement = this; child.attach(this.ownerDocument); this.children.push(child); } return this; }
   attach(doc) { this.ownerDocument = doc; this.children.forEach(c => c.attach(doc)); }
   get textContent() { return this.text + this.children.map(c => c.textContent).join('\n'); }
+  set textContent(value) { for (const child of [...this.children]) child.remove(); this.text = String(value ?? ''); }
   get innerText() { return this.textContent; }
   getAttribute(key) { return this.attrs[key] ?? null; }
   setAttribute(key, value) { this.attrs[key] = String(value); }
@@ -36,6 +37,7 @@ export class Element {
   getClientRects() { return this.hidden || this.style.display === 'none' ? [] : [{}]; }
   dispatchEvent() { return true; }
   click() {
+    if (this.disabled) return;
     this.clicks++;
     if (this.type === 'checkbox') this.checked = !this.checked;
     if (this.type === 'radio') {
@@ -43,6 +45,7 @@ export class Element {
       this.checked = true;
     }
     this.onClick?.();
+    this.onclick?.({type:'click',target:this});
   }
 }
 export const el = (tag, attrs, text) => new Element(tag, attrs, text);

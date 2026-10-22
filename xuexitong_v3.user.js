@@ -14,7 +14,7 @@
 (() => {
 'use strict';
 /* Independently authored course controller. This function is embedded by the builder. */
-function createCourseController(mode, token) {
+function createCourseController(mode, token, initialFlow = 'auto') {
   const host = window;
   const here = host.location;
   if (host.top !== host || here.protocol !== 'https:' ||
@@ -42,6 +42,7 @@ function createCourseController(mode, token) {
   if (host.__XUEXITONG_CONFIG__?.playRetryLimit !== undefined && host.__XUEXITONG_CONFIG__?.maxRetries === undefined) configs.maxRetries = configs.playRetryLimit;
   const state = {
     alive: true, busy: false, timer: null, abort: null, requestTimer: null,
+    destroyed: false, flow: initialFlow === 'answer-only' ? 'answer-only' : 'auto', answerScope: null, answerTabOpened: false,
     quiz: null, quizRetry: null, transition: null, video: null, playAttempts: 0,
     pageStarted: Date.now(), warned: false, message: '', status: 'starting',
     ready: mode === 'v3', lastProgress: Date.now(), lastTime: null, lastPlayAt: -Infinity, pendingTimers: new Set()
@@ -100,11 +101,14 @@ function createCourseController(mode, token) {
     return found;
   }
   function diagnostic(message, level = 'log') {
+    statusMessage.textContent = message;
+    if (answerButton) {
+      answerButton.disabled = state.alive && state.flow === 'answer-only';
+      answerButton.style.opacity = answerButton.disabled ? '0.6' : '1';
+    }
     if (state.message === message) return;
     state.message = message;
     host.console[level](`[学习助手] ${message}`);
-    const box = host.document.getElementById?.('xuexitong-independent-status');
-    if (box) box.textContent = message;
   }
   function stop(reason = '已停止') {
     state.alive = false; state.status = 'stopped';
@@ -287,6 +291,19 @@ function createCourseController(mode, token) {
       return entries.find(e => e.slot === state.quiz.slot && e.task === state.quiz.task && completion(e)) || null;
     }
     return entries.find(e => /(?:work|quiz|exam)/i.test(e.doc.URL || '') && completion(e)) || null;
+  }
+  function courseScope() {
+    const url = new URL(here.href);
+    const keys = ['courseId','courseid','clazzid','clazzId','chapterId','chapterid','knowledgeid','knowledgeId'];
+    const location = keys.filter(key => url.searchParams.has(key)).map(key => `${key}=${url.searchParams.get(key)}`).join('&');
+    const anchors = all(host.document, '.posCatalog_active,[aria-current="true"]').filter(node => visible(node) &&
+      (node.matches('.posCatalog_active') || node.closest('#coursetree,.chapter_item,[data-task-id]')));
+    const active = anchors.map(node => ['id','data-id','data-chapterid','data-knowledgeid','href'].map(key => node.getAttribute(key) || '').join(':')).join(';');
+    return { key: `${location}|${active}`, anchors };
+  }
+  function sameCourseScope() {
+    const current = courseScope(), before = state.answerScope;
+    return before && current.key === before.key && current.anchors.length === before.anchors.length && current.anchors.every((node, i) => node === before.anchors[i]);
   }
   function currentTab(entries, target = 'quiz') {
     const expected = '[role="tab"],.tab,.tab-item,.tabItem,.knowledgeTab,.tabtags,.prev_white';
@@ -538,7 +555,10 @@ function createCourseController(mode, token) {
         diagnostic('当前页同时显示题目和旧成绩，等待明确完成状态'); deadline(record.start, '测验状态确认'); return;
       }
       if (!record.submitted || completion(entry, record.gradesBeforeSubmit)) {
-        record.done = true; diagnostic('当前测验已显示新的成绩，准备下一任务'); advanceTask(entries); return;
+        record.done = true;
+        if (state.flow === 'answer-only') stop('当前测验已完成，已停留在本节');
+        else { diagnostic('当前测验已显示新的成绩，准备下一任务'); advanceTask(entries); }
+        return;
       }
     }
     if (!deadline(record.start, '测验等待')) return;
@@ -561,7 +581,7 @@ function createCourseController(mode, token) {
     state.playAttempts++;
     state.lastPlayAt = Date.now();
     const task = taskKey(video.ownerDocument);
-    const stillCurrent = () => state.alive && state.video === video && taskKey(video.ownerDocument) === task && visible(video) && documents().some(e => all(e.doc, 'video').includes(video));
+    const stillCurrent = () => state.alive && state.flow === 'auto' && state.video === video && taskKey(video.ownerDocument) === task && visible(video) && documents().some(e => all(e.doc, 'video').includes(video));
     const boundedPlay = async () => {
       let timer;
       try {
@@ -583,6 +603,9 @@ function createCourseController(mode, token) {
     if (!state.alive || !state.ready || state.busy) return;
     state.busy = true;
     try {
+      if (state.flow === 'answer-only' && !sameCourseScope()) {
+        fail('单独答题期间章节已改变，已取消；请在目标章节重新开始'); return;
+      }
       const entries = documents();
       if (state.transition) {
         if (!fresh(state.transition.before, content(entries))) {
@@ -593,6 +616,17 @@ function createCourseController(mode, token) {
       }
       const entry = quizEntry(entries);
       if (entry) { await handleQuiz(entry, entries); return; }
+      if (state.flow === 'answer-only') {
+        if (state.answerTabOpened) {
+          if (Date.now() - state.pageStarted >= Math.min(120000, Math.max(1, Number(configs.quizLoadTimeoutMs) || 120000))) {
+            fail('当前章节测验加载超时，未答题或切换章节'); return;
+          }
+          diagnostic('正在等待当前章节测验加载'); return;
+        }
+        const tab = currentTab(entries);
+        if (!tab || !transition(tab, entries, 'quiz')) { fail('未找到可打开的当前章节测验，请打开测验后再点一键开始做题'); return; }
+        state.answerTabOpened = true; return;
+      }
       if (state.quiz && !state.quiz.done) {
         const freshPlayer = entries.some(e => {
           let course = e;
@@ -631,23 +665,45 @@ function createCourseController(mode, token) {
     if (!state.alive) return api;
     schedule(); return api;
   }
-  const onHide = () => stop('页面已离开，已取消所有工作');
+  function answerCurrentQuiz() {
+    if (mode !== 'console' || state.destroyed || host.app !== api) return api;
+    if (state.alive && state.flow === 'answer-only') return api;
+    if (!state.alive) return createCourseController(mode, token, 'answer-only');
+    if (state.transition?.kind === 'next') { diagnostic('任务正在切换，请加载完成后再点一键开始做题'); return api; }
+    state.flow = 'answer-only'; state.answerScope = courseScope(); state.answerTabOpened = false;
+    state.pageStarted = Date.now(); state.warned = false;
+    diagnostic('正在单独处理当前章节测验，完成后停留');
+    return run();
+  }
+  const onHide = () => { state.destroyed = true; stop('页面已离开，已取消所有工作'); };
   const api = {
     configs, get status() { return state.status; }, get message() { return state.message; },
     inspectQuiz() { const entry = quizEntry(documents()); if (!entry) return null; try { const snapshot = extract(entry); return snapshot?.rows.map(row => row.wire) || []; } catch (error) { return { error: error.message }; } },
-    run, play: run,
+    run, play: run, answerCurrentQuiz,
     nextUnit() { if (state.alive) { reconcile(); schedule(); } return api; },
     stop,
-    destroy() { stop('控制器已替换或销毁'); host.removeEventListener('pagehide', onHide); status.remove?.(); }
+    destroy() { state.destroyed = true; stop('控制器已替换或销毁'); host.removeEventListener('pagehide', onHide); status.remove?.(); }
   };
   if (mode === 'console') { host.__WB_DRIVER = 'console'; host.__xuexitongConsoleDeepSeek = api; }
   else host.__xuexitongPlayerV3 = api;
   host.app = api;
   host.addEventListener('pagehide', onHide);
   const status = host.document.createElement('div');
-  status.id = 'xuexitong-independent-status'; status.setAttribute('role', 'status');
-  status.style.cssText = 'position:fixed;bottom:8px;right:8px;z-index:2147483647;background:#fff;color:#222;border:1px solid #777;padding:8px;max-width:360px;font:13px sans-serif';
+  status.id = 'xuexitong-independent-status'; status.setAttribute('role', 'group'); status.setAttribute('aria-label', '学习助手');
+  status.style.cssText = 'position:fixed;bottom:8px;right:8px;z-index:2147483647;display:flex;align-items:center;gap:8px;background:#fff;color:#222;border:1px solid #777;border-radius:6px;padding:8px;max-width:calc(100vw - 16px);box-sizing:border-box;font:13px sans-serif';
+  const statusMessage = host.document.createElement('span');
+  statusMessage.setAttribute('role', 'status'); statusMessage.setAttribute('aria-live', 'polite');
+  statusMessage.style.cssText = 'min-width:0;max-width:360px;overflow-wrap:anywhere;';
+  const answerButton = mode === 'console' ? host.document.createElement('button') : null;
+  if (answerButton) {
+    answerButton.id = 'xuexitong-answer-current'; answerButton.type = 'button'; answerButton.textContent = '一键开始做题';
+    answerButton.title = '只处理当前章节测验，完成后停留';
+    answerButton.style.cssText = 'flex-shrink:0;white-space:nowrap;border:1px solid #16825d;border-radius:4px;background:#16825d;color:#fff;padding:6px 10px;font:inherit;cursor:pointer;';
+    answerButton.onclick = answerCurrentQuiz; status.append(answerButton);
+  }
+  status.append(statusMessage);
   (host.document.body || host.document.documentElement).append(status);
+  if (state.flow === 'answer-only') state.answerScope = courseScope();
   diagnostic('控制器已启动');
   if (mode === 'console') {
     if (!token || /^__.*__$/.test(token)) { stop('请通过本地服务注入有效会话令牌'); return api; }
