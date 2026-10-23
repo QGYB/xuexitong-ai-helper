@@ -138,6 +138,7 @@ node wb-runner.mjs 2 --openai
 - runner 的无凭据 `GET /health` 获取200身份信息，然后 `GET /script` 获取同一 sessionId 的脚本。两端点不开放跨站 CORS；/script 拒绝 Origin 和浏览器 Fetch Metadata，返回 JSON、no-store、nosniff，不可作为跨站脚本载入。
 - 随机令牌每次服务启动生成，只在内存和运行时响应中传递；磁盘源码永久保留 `__LOCAL_TOKEN__`。页面 `/health` 和 `/answer` 仍校验 HTTPS Chaoxing Origin 与令牌。
 - Playwright 绑定仅向 HTTPS Chaoxing 顶层章节学习页及上述精确单题答题路径交付脚本；考试说明页、相似后缀路径和子框架均不交付。每次新文档重新核对健康和脚本会话，源码不写入任意站点的全局变量。
+- 新版 Edge 的 Local Network Access 权限可能拦截网页访问回环服务，表现为“本地服务健康检查超时”。runner 在上述合法顶层页面注入前，仅为当前 HTTPS 来源设置 `loopback-network` 权限；较早的 LNA 浏览器回退到同一来源的 `local-network-access`。不会全局关闭 LNA 检查，不修改系统策略、正常 Edge 档案、相机等其他权限。更新后需要关闭并重新启动本项目浏览器实例，单独刷新旧实例不会加载新的 runner。企业策略仍可能阻止授权，此时需管理员处理。
 - 同一主机的其他程序不是这套回环协议抵御的攻击者；它们可访问本地 bootstrap。API Key 不传入浏览器，只由 Node 服务读取配置/环境变量。
 - 私密配置、环境文件、所有 edge-profile-*、会话导出、PID、日志及 node_modules 被忽略；忽略规则不能替代发布前秘密扫描。
 
@@ -146,6 +147,8 @@ node wb-runner.mjs 2 --openai
 `npm test` 覆盖答案协议、兜底完整性、真实合成本地 HTTP、Origin/令牌/Host、会话更新、注入边界、导航与销毁状态。它不验证真实学习通 DOM、Edge 本地网络权限、账号、付费上游、代理、云额度或平台许可。需要用户在自己的授权环境验收。
 
 `node wb-jev-test.mjs` 是可选实网自测，会使用本地 Key 发出一道已知答案请求；普通测试不会调用它。
+
+`node scripts/check-local-network.mjs` 是可选的 Edge 本地网络权限复测（Edge ≥145）。它短暂打开临时浏览器档案，使用伪造 HTTPS 页面和合成回环服务，验证拒绝权限时失败、runner 授权后 `/health` 与 `/answer` 成功、相机与其他来源权限不变；不读取用户配置、不登录账号，也不调用付费上游。
 
 | 文件 | 作用 |
 |---|---|

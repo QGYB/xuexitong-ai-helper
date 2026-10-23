@@ -59,9 +59,11 @@ test('scripts are requested only after exact health success and must share sessi
 });
 
 function sourceFor(url,child=false){const main={url:()=>url};const frame=child?{url:()=>url}:main;return {frame,page:{mainFrame:()=>main}};}
+const permissionBrowser=(send=async()=>{},version='155.0.0.0',detach=async()=>{})=>({browser:()=>({version:()=>version,newBrowserCDPSession:async()=>({send,detach})})});
+const permissionSupport=permissionBrowser();
 test('binding refuses foreign origins, child frames, and non-course paths before loading scripts', async () => {
   let binding, calls=0;
-  await installBridge({exposeBinding:async(name,fn)=>{assert.equal(name,'__WBGetScripts');binding=fn;}},{fetchImpl:async(...args)=>{calls++;return fetchPair()(...args);},mode:'openai'});
+  await installBridge({...permissionSupport,exposeBinding:async(name,fn)=>{assert.equal(name,'__WBGetScripts');binding=fn;}},{fetchImpl:async(...args)=>{calls++;return fetchPair()(...args);},mode:'openai'});
   for(const url of ['https://evil.test/mycourse/studentstudy','http://x.chaoxing.com/mycourse/studentstudy','https://chaoxing.com.evil.test/mycourse/studentstudy','https://x.chaoxing.com/other','https://x.chaoxing.com/mycourse/studentstudy-evil']) await assert.rejects(binding(sourceFor(url)),/trusted/i);
   await assert.rejects(binding(sourceFor('https://x.chaoxing.com/mycourse/studentstudy',true)),/trusted/i);
   assert.equal(calls,0);
@@ -72,7 +74,7 @@ test('binding refuses foreign origins, child frames, and non-course paths before
   await assert.rejects(binding(sourceFor('https://x.chaoxing.com/mooc2-ans/mycourse/studentstudy-evil')),/trusted/i);
 });
 test('binding and bootstrap support the exact manual exam route while excluding exam entry and lookalikes',async()=>{
-  let binding,calls=0;await installBridge({exposeBinding:async(_,fn)=>{binding=fn;}},{fetchImpl:async(...args)=>{calls++;return fetchPair()(...args);}});
+  let binding,calls=0;await installBridge({...permissionSupport,exposeBinding:async(_,fn)=>{binding=fn;}},{fetchImpl:async(...args)=>{calls++;return fetchPair()(...args);}});
   const path='/exam-ans/exam/test/reVersionTestStartNew';
   for(const url of [`https://mooc1.chaoxing.com${path}`,`https://mooc1.chaoxing.com${path}/`])assert.equal((await binding(sourceFor(url))).sessionId,'one');
   const before=calls;for(const url of [`https://mooc1.chaoxing.com${path}-evil`,'https://mooc1.chaoxing.com/exam-ans/exam/test/examcode/examnotes',`https://evil.test${path}`,`http://mooc1.chaoxing.com${path}`])await assert.rejects(binding(sourceFor(url)),/trusted/i);
@@ -82,12 +84,50 @@ test('binding and bootstrap support the exact manual exam route while excluding 
 
 test('new documents fetch the current session after a service restart and reject a navigation during fetch', async () => {
   let binding, id='one';
-  await installBridge({exposeBinding:async(name,fn)=>{binding=fn;}},{mode:'openai',fetchImpl:async url=>response(url.endsWith('/health')?health(id):scripts(id))});
+  await installBridge({...permissionSupport,exposeBinding:async(name,fn)=>{binding=fn;}},{mode:'openai',fetchImpl:async url=>response(url.endsWith('/health')?health(id):scripts(id))});
   const source=sourceFor('https://x.chaoxing.com/mycourse/studentstudy');
   assert.equal((await binding(source)).sessionId,'one');id='two';assert.equal((await binding(source)).sessionId,'two');
   let url='https://x.chaoxing.com/mycourse/studentstudy';const frame={url:()=>url};
-  await installBridge({exposeBinding:async(name,fn)=>{binding=fn;}},{fetchImpl:async request=>{if(request.endsWith('/script'))url='https://evil.test/';return fetchPair()(request);}});
+  await installBridge({...permissionSupport,exposeBinding:async(name,fn)=>{binding=fn;}},{fetchImpl:async request=>{if(request.endsWith('/script'))url='https://evil.test/';return fetchPair()(request);}});
   await assert.rejects(binding({frame,page:{mainFrame:()=>frame}}),/trusted/i);
+});
+
+test('trusted script delivery grants only exact-origin loopback before fetching credentials',async()=>{
+  let binding,detached=0;const events=[];
+  let sessions=0;const browser={version:()=>'155.0.0.0',newBrowserCDPSession:async()=>{sessions++;return {send:async(method,args)=>{events.push({method,...args});},detach:async()=>{detached++;}};}};
+  const context={exposeBinding:async(_,fn)=>{binding=fn;},browser:()=>browser};
+  await installBridge(context,{fetchImpl:async(...args)=>{events.push('fetch');return fetchPair()(...args);}});
+  for(const [url,child] of [['https://example.com/mycourse/studentstudy',false],['https://mooc1.chaoxing.com/mycourse/studentstudy',true],['https://mooc1.chaoxing.com/other',false]])await assert.rejects(binding(sourceFor(url,child)),/trusted/);
+  assert.deepEqual(events,[]);
+  await binding(sourceFor('https://mooc1.chaoxing.com/mycourse/studentstudy?chapterId=123'));
+  assert.deepEqual(events[0],{method:'Browser.setPermission',permission:{name:'loopback-network'},setting:'granted',origin:'https://mooc1.chaoxing.com'});
+  assert.deepEqual(events.slice(1),['fetch','fetch']);assert.equal(detached,0);
+  await binding(sourceFor('https://mooc2-ans.chaoxing.com/mycourse/studentstudy'));assert.equal(sessions,1);assert.equal(detached,0);
+});
+test('older LNA browsers use the origin-scoped legacy permission only when the new name is unsupported',async()=>{
+  let binding,detached=0;const permissions=[];
+  await installBridge({...permissionBrowser(async(_,args)=>{permissions.push(args);if(args.permission.name==='loopback-network')throw Error('Invalid PermissionDescriptor name');},'144.0.0.0',async()=>{detached++;}),exposeBinding:async(_,fn)=>{binding=fn;}},{fetchImpl:fetchPair()});
+  assert.equal((await binding(sourceFor('https://mooc2-ans.chaoxing.com/mycourse/studentstudy'))).sessionId,'one');
+  assert.deepEqual(permissions.map(p=>p.permission.name),['loopback-network','local-network-access']);assert.ok(permissions.every(p=>p.origin==='https://mooc2-ans.chaoxing.com'));assert.equal(detached,0);
+});
+test('permission policy failures do not broaden permissions or request script credentials',async()=>{
+  let binding,calls=0,detached=0,sends=0;
+  await installBridge({...permissionBrowser(async()=>{sends++;throw Error('Permission denied by access policy');},'155.0.0.0',async()=>{detached++;}),exposeBinding:async(_,fn)=>{binding=fn;}},{fetchImpl:async()=>{calls++;throw Error('must not fetch');}});
+  await assert.rejects(binding(sourceFor('https://mooc1.chaoxing.com/mycourse/studentstudy')),/permission/i);assert.equal(calls,0);assert.equal(sends,1);assert.equal(detached,0);
+});
+for(const [version,allowed] of [['133.0.0.0',true],['155.0.0.0',false]])
+test(`unsupported LNA descriptors ${allowed?'keep legacy behavior':'fail clearly'} on Edge ${version}`,async()=>{
+  let binding,calls=0,detached=0;
+  await installBridge({...permissionBrowser(async()=>{throw Error('Invalid PermissionDescriptor name');},version,async()=>{detached++;}),exposeBinding:async(_,fn)=>{binding=fn;}},{fetchImpl:async(...args)=>{calls++;return fetchPair()(...args);}});
+  const call=binding(sourceFor('https://mooc1.chaoxing.com/mycourse/studentstudy'));
+  if(allowed){assert.equal((await call).sessionId,'one');assert.equal(calls,2);}else{await assert.rejects(call,/permission/i);assert.equal(calls,0);}
+  assert.equal(detached,0);
+});
+test('navigation during loopback permission setup prevents all credential requests',async()=>{
+  let binding,url='https://mooc1.chaoxing.com/mycourse/studentstudy',calls=0;
+  const frame={url:()=>url},source={frame,page:{mainFrame:()=>frame}};
+  await installBridge({...permissionBrowser(async()=>{url='https://example.com/';}),exposeBinding:async(_,fn)=>{binding=fn;}},{fetchImpl:async()=>{calls++;throw Error('must not fetch');}});
+  await assert.rejects(binding(source),/trusted|frame/i);assert.equal(calls,0);
 });
 
 function browserSandbox(url,{child=false,readyState='complete',jquery=true}={}){

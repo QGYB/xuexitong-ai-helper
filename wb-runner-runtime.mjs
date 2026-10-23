@@ -106,10 +106,34 @@ function trustedSource(source) {
     } catch { return false; }
 }
 
+async function allowLocalLoopback(context, session, origin) {
+    // The runner owns a persistent (default) context. Set only this permission;
+    // grantPermissions would also deny unrelated permissions such as camera.
+    const unsupported = error => /unknown permission|invalid permissiondescriptor name|unrecognized permission|unsupported permission/i.test(error?.message || '');
+    const grant = name => session.send('Browser.setPermission', {permission:{name}, setting:'granted', origin});
+    try { await grant('loopback-network'); }
+    catch (error) {
+        if (!unsupported(error)) throw error;
+        try { await grant('local-network-access'); }
+        catch (legacyError) {
+            const major = Number.parseInt(context.browser()?.version(), 10);
+            if (!(unsupported(legacyError) && major > 0 && major < 138)) throw legacyError;
+            // Browsers predating LNA have neither descriptor and need no grant.
+        }
+    }
+}
+
 export async function installBridge(context, options = {}) {
+    // Chromium clears permission overrides when their CDP session detaches.
+    // Keep one browser-level session until this runner's dedicated browser closes;
+    // it also survives page closure, navigation and popup replacement.
+    let permissionSession;
     await context.exposeBinding('__WBGetScripts', async source => {
         if (!trustedSource(source)) throw new Error('Script access requires a trusted top-level Chaoxing study page.');
         const documentUrl = source.frame.url();
+        permissionSession ||= context.browser().newBrowserCDPSession();
+        await allowLocalLoopback(context, await permissionSession, new URL(documentUrl).origin);
+        if (!trustedSource(source) || source.frame.url() !== documentUrl) throw new Error('Frame changed before trusted script delivery.');
         const data = await getScripts(options);
         if (!trustedSource(source) || source.frame.url() !== documentUrl) throw new Error('Frame changed before trusted script delivery.');
         return data;
