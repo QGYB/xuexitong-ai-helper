@@ -58,15 +58,21 @@ Jev Key 留空时可仅使用兜底；JEV_API_KEY 是 Key 的环境变量后备�
 
 可选 Jev 配置同 A：若有 config.json 则读取 jev 段；没有该文件也可通过 JEV_API_KEY/JEV_PROXY 启用 Jev。jev.model、confidenceFloor、noulProbabilityFloor 在两个服务变体中一致。
 
-先查询自己账号可用的模型，再用 `WB_MODEL` 固定选择。目录中有多个模型但未指定、指定模型不存在或不可用时，云答题返回422并暂停，不按 flash/lite/mini 名称猜测或静默换模型；只有一个可用模型时可直接使用它。模型在服务进程内固定，更换后需重启答题服务。Jev 已成功作答的题不调用云目录或云推理。
+云答题默认使用 **`deepseek-v4-flash`**，无需设置模型环境变量，配好 WorkBuddy 公共配置后按下面命令启动即可。它在本项目2026-10-23的108题同题对照中取得最高分102/108（94.44%），本轮另一个候选为Pro；这是一次有限测量，不保证其他课程也有相同正确率。模型在首次云兜底时校验账号可用目录，并在服务进程内固定；Jev 已成功作答的题不调用云目录或云推理。
 
 ```powershell
-node scripts/evaluate-workbuddy.mjs --config wb-public-config.json --list-models
-$env:WB_MODEL = 'deepseek-v4-flash' # 示例：先确认自己的模型目录中存在这个 ID
 node wb-launch.mjs --workbuddy
 ```
 
-上述环境变量只作用于当前 PowerShell 及其子进程；在另一个窗口双击 `.cmd` 不会继承它。可在同一 PowerShell 运行入口，或在自己的启动脚本中设置变量，不必改认证配置。模型取舍应依据同题实测，名称和单次成绩不能证明正确率。
+账号没有默认模型或模型已被禁用时，云答题返回422并提示默认模型不可用，不静默改用未经评测的模型。高级用户可选用 `WB_MODEL` 覆盖默认值：
+
+```powershell
+node scripts/evaluate-workbuddy.mjs --config wb-public-config.json --list-models
+$env:WB_MODEL = 'deepseek-v4-pro' # 可选：先确认自己的模型目录中存在这个 ID
+node wb-launch.mjs --workbuddy
+```
+
+显式指定的模型不可用也会422暂停；更换模型需重启答题服务。`WB_MODEL` 只作用于当前 PowerShell 及其子进程，在另一个窗口双击 `.cmd` 不会继承它；删除自己的覆盖变量后恢复默认，不必改认证配置。模型取舍应依据同题实测，名称和单次成绩不能证明正确率。
 
 云模式使用独立答题指令，保留否定词、数字和题型，多选检查漏选/错选，判断先确认真假再匹配字母。遇到乱码、缺失内容或无法区分的重复选项会暂停；云模型主动返回空答案时也暂停，不强迫补猜。页面题干/选项中的图片、公式、私用区乱码会在发送前拦截，当前文字接口不能理解这些内容。通过结构检查的答案仍可能答错。
 

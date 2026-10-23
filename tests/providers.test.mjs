@@ -9,7 +9,7 @@ import {getScripts,probeService} from '../wb-runner-runtime.mjs';
 const single={id:1,type:'单选题',question:'合成题',options:[{letter:'A',text:'one'},{letter:'B',text:'two'}]};
 const template="const LOCAL_TOKEN = '__LOCAL_TOKEN__';";
 const publicFixture={endpoint:'https://synthetic.example.invalid',publishableKey:'synthetic-public'};
-function fakeCloud({models=[{id:'quality-model'}],content='{"answers":[{"id":1,"letters":["A"]}]}',onList=()=>{},onChat=()=>{}}={}){
+function fakeCloud({models=[{id:'deepseek-v4-flash'}],content='{"answers":[{"id":1,"letters":["A"]}]}',onList=()=>{},onChat=()=>{}}={}){
   const create=async function*(args){onChat(args);yield {model:args.model,usage:{prompt_tokens:12,completion_tokens:8,total_tokens:20},choices:[{delta:{content}}]};};
   return {llm:{models:{list:async()=>{onList();return models;}},chat:{completions:{create}}}};
 }
@@ -89,10 +89,26 @@ test('cloud pins an available model and rejects a missing configured model witho
   const {answer}=await running(t,startWorkBuddy,{directory:dir,env:{WB_MODEL:'missing-model'},createCloud:()=>fakeCloud({models:[{id:'other'}],onList:()=>listed++,onChat:()=>chats++})});
   const result=await answer([single]);assert.equal(result.status,422);assert.equal(chats,0);assert.equal(listed,1);assert.match(result.body.error,/WB_MODEL|模型/);
 });
-test('cloud requires explicit selection when several models are available rather than preferring flash',async t=>{
+test('cloud defaults to the measured winner without environment setup and pins it across requests',async t=>{
+  const selected=[];let listed=0;const dir=fixture(t,{},publicFixture);
+  const {answer}=await running(t,startWorkBuddy,{directory:dir,createCloud:()=>fakeCloud({models:[{id:'unmeasured-model'},{id:'deepseek-v4-pro'},{id:'deepseek-v4-flash'}],onList:()=>listed++,onChat:args=>selected.push(args.model)})});
+  for(let i=0;i<2;i++)assert.deepEqual(await answer([single]),{status:200,body:{answers:[{id:1,letters:['A']}]}});
+  assert.deepEqual(selected,['deepseek-v4-flash','deepseek-v4-flash']);assert.equal(listed,1);
+});
+test('an explicit cloud override still selects its exact model over the default',async t=>{
+  const selected=[];const dir=fixture(t,{},publicFixture);
+  const {answer}=await running(t,startWorkBuddy,{directory:dir,env:{WB_MODEL:'deepseek-v4-pro'},createCloud:()=>fakeCloud({models:[{id:'deepseek-v4-flash'},{id:'deepseek-v4-pro'}],onChat:args=>selected.push(args.model)})});
+  assert.equal((await answer([single])).status,200);assert.deepEqual(selected,['deepseek-v4-pro']);
+});
+for(const [name,models] of [
+  ['missing with a single other model',[{id:'other'}]],
+  ['disabled',[{id:'deepseek-v4-flash',disabled:true},{id:'other'}]],
+  ['not enabled',[{id:'deepseek-v4-flash',enabled:false},{id:'other'}]],
+  ['empty catalog',[]],
+])test(`unavailable default (${name}) gives an actionable error without using an unmeasured substitute`,async t=>{
   let chats=0;const dir=fixture(t,{},publicFixture);
-  const {answer}=await running(t,startWorkBuddy,{directory:dir,createCloud:()=>fakeCloud({models:[{id:'quality-model'},{id:'deepseek-v4-flash'}],onChat:()=>chats++})});
-  assert.equal((await answer([single])).status,422);assert.equal(chats,0);
+  const {answer}=await running(t,startWorkBuddy,{directory:dir,createCloud:()=>fakeCloud({models,onChat:()=>chats++})});
+  const result=await answer([single]);assert.equal(result.status,422);assert.equal(chats,0);assert.match(result.body.error,/deepseek-v4-flash/);assert.match(result.body.error,/WB_MODEL/);
 });
 test('cloud rejects replacement glyphs, missing media placeholders and duplicate option text before inference',async t=>{
   const dir=fixture(t,{},publicFixture);let chats=0;
@@ -112,6 +128,6 @@ test('cloud diagnostics correlate requests without storing raw questions, creden
   const res=await fetch(base+'/answer',{method:'POST',headers:{Origin:'https://mooc1.chaoxing.com','X-Xuexitong-Token':local.token,'Content-Type':'application/json'},body:JSON.stringify({questions:[question]})});
   assert.equal(res.status,200);const id=res.headers.get('x-xuexitong-request-id');assert.match(id,/^[a-f0-9-]{36}$/);assert.match(res.headers.get('access-control-expose-headers'),/X-Xuexitong-Request-Id/i);
   const log=readFileSync(dir+'logs/answer-diagnostics.jsonl','utf8');assert.ok(!log.includes(question.question));assert.ok(!log.includes(publicFixture.publishableKey));assert.ok(!log.includes(local.token));
-  const entries=log.trim().split('\n').map(line=>JSON.parse(line));const event=entries.find(e=>e.status==='success');assert.equal(event.requestId,id);assert.equal(event.model,'quality-model');assert.equal(event.route,'cloud');assert.match(event.questionHash,/^[a-f0-9]{64}$/);assert.deepEqual(event.letters,['A']);assert.equal(event.usage.total_tokens,20);
+  const entries=log.trim().split('\n').map(line=>JSON.parse(line));const event=entries.find(e=>e.status==='success');assert.equal(event.requestId,id);assert.equal(event.model,'deepseek-v4-flash');assert.equal(event.route,'cloud');assert.match(event.questionHash,/^[a-f0-9]{64}$/);assert.deepEqual(event.letters,['A']);assert.equal(event.usage.total_tokens,20);
   assert.ok(!message.includes('还原最可能的原句'));assert.ok(!message.includes('每题给非空答案'));assert.match(message,/多选|判断|否定/);
 });

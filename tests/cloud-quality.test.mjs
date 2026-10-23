@@ -9,7 +9,7 @@ import {createCloudAnswerer} from '../wb-cloud-quality.mjs';
 import {createAnswerDiagnostics,questionHash} from '../wb-answer-diagnostics.mjs';
 import {traceAnswerApplication} from '../browser/answer-diagnostics.mjs';
 const question={id:1,type:'单选题',question:'PRIVATE-STEM',options:[{letter:'A',text:'PRIVATE-OPTION-ONE'},{letter:'B',text:'PRIVATE-OPTION-TWO'}]};
-const cloudFor=create=>({llm:{models:{list:async()=>[{id:'test-model'}]},chat:{completions:{create}}}});
+const cloudFor=create=>({llm:{models:{list:async()=>[{id:'deepseek-v4-flash'}]},chat:{completions:{create}}}});
 test('disabled diagnostics do not need a directory or create files',()=>{
   const d=createAnswerDiagnostics();assert.equal(d.enabled,false);assert.doesNotThrow(()=>d.record({}));
 });
