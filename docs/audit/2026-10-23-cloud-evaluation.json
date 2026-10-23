@@ -1,0 +1,927 @@
+{
+  "protocol": "workbuddy-cloud-evaluation-v1",
+  "date": "2026-10-23",
+  "completed": true,
+  "promptVersion": "cloud-quality-v1",
+  "baselinePromptHash": "6706c10037657c8604a43a41209d16cd57a217a68d86cab26247b5710ff61430",
+  "qualityPromptHash": "ef31d7a3fc509501c781e36c973e2c87cdc29dc83b05d614089dc8a23b7adf29",
+  "datasetHash": "778efd979257c3cacac5d4c7a2a11f7bd37f333ba58b9bf1e0b11af05ac06c45",
+  "selection": {
+    "split": "holdout",
+    "seed": "cloud-quality-v1",
+    "limit": 1000
+  },
+  "source": {
+    "url": "https://raw.githubusercontent.com/haonan-li/CMMLU/master/data/test/security_study.csv",
+    "sha256": "a352cbd0c01be8d0b3f1c4fbada2d4f313ae5eab4a0960b660e31d2c70b7648f",
+    "publishedLabelsUnmodified": true,
+    "poolKnowledge": 135,
+    "poolSynthetic": 60,
+    "holdoutKnowledge": 75,
+    "holdoutSynthetic": 33
+  },
+  "responseModels": [
+    "deepseek-v4-flash",
+    "deepseek-v4-pro"
+  ],
+  "summary": [
+    {
+      "model": "deepseek-v4-flash",
+      "condition": "baseline",
+      "total": 108,
+      "attempted": 108,
+      "answered": 108,
+      "correct": 101,
+      "abstained": 0,
+      "failed": 0,
+      "notRun": 0,
+      "accuracy": 0.9351851851851852,
+      "coverage": 1,
+      "answeredAccuracy": 0.9351851851851852,
+      "p50Ms": 1686,
+      "p95Ms": 2089,
+      "inferenceAttempts": 109,
+      "usage": {
+        "prompt_tokens": 19067,
+        "completion_tokens": 1646,
+        "total_tokens": 20713
+      },
+      "multi": {
+        "answered": 13,
+        "exact": 13,
+        "withWrongSelection": 0,
+        "withMissingSelection": 0
+      },
+      "byType": {
+        "单选题": {
+          "total": 84,
+          "attempted": 84,
+          "answered": 84,
+          "correct": 77,
+          "abstained": 0,
+          "failed": 0,
+          "notRun": 0,
+          "accuracy": 0.9166666666666666,
+          "coverage": 1,
+          "answeredAccuracy": 0.9166666666666666,
+          "p50Ms": 1678,
+          "p95Ms": 2059,
+          "inferenceAttempts": 85,
+          "usage": {
+            "prompt_tokens": 14396,
+            "completion_tokens": 1260,
+            "total_tokens": 15656
+          },
+          "multi": {
+            "answered": 0,
+            "exact": 0,
+            "withWrongSelection": 0,
+            "withMissingSelection": 0
+          }
+        },
+        "判断题": {
+          "total": 11,
+          "attempted": 11,
+          "answered": 11,
+          "correct": 11,
+          "abstained": 0,
+          "failed": 0,
+          "notRun": 0,
+          "accuracy": 1,
+          "coverage": 1,
+          "answeredAccuracy": 1,
+          "p50Ms": 1853,
+          "p95Ms": 2089,
+          "inferenceAttempts": 11,
+          "usage": {
+            "prompt_tokens": 1734,
+            "completion_tokens": 165,
+            "total_tokens": 1899
+          },
+          "multi": {
+            "answered": 0,
+            "exact": 0,
+            "withWrongSelection": 0,
+            "withMissingSelection": 0
+          }
+        },
+        "多选题": {
+          "total": 13,
+          "attempted": 13,
+          "answered": 13,
+          "correct": 13,
+          "abstained": 0,
+          "failed": 0,
+          "notRun": 0,
+          "accuracy": 1,
+          "coverage": 1,
+          "answeredAccuracy": 1,
+          "p50Ms": 1673,
+          "p95Ms": 2212,
+          "inferenceAttempts": 13,
+          "usage": {
+            "prompt_tokens": 2937,
+            "completion_tokens": 221,
+            "total_tokens": 3158
+          },
+          "multi": {
+            "answered": 13,
+            "exact": 13,
+            "withWrongSelection": 0,
+            "withMissingSelection": 0
+          }
+        }
+      }
+    },
+    {
+      "model": "deepseek-v4-flash",
+      "condition": "quality",
+      "total": 108,
+      "attempted": 108,
+      "answered": 108,
+      "correct": 102,
+      "abstained": 0,
+      "failed": 0,
+      "notRun": 0,
+      "accuracy": 0.9444444444444444,
+      "coverage": 1,
+      "answeredAccuracy": 0.9444444444444444,
+      "p50Ms": 1695,
+      "p95Ms": 2105,
+      "inferenceAttempts": 108,
+      "usage": {
+        "prompt_tokens": 34079,
+        "completion_tokens": 1646,
+        "total_tokens": 35725
+      },
+      "multi": {
+        "answered": 13,
+        "exact": 13,
+        "withWrongSelection": 0,
+        "withMissingSelection": 0
+      },
+      "byType": {
+        "单选题": {
+          "total": 84,
+          "attempted": 84,
+          "answered": 84,
+          "correct": 79,
+          "abstained": 0,
+          "failed": 0,
+          "notRun": 0,
+          "accuracy": 0.9404761904761905,
+          "coverage": 1,
+          "answeredAccuracy": 0.9404761904761905,
+          "p50Ms": 1674,
+          "p95Ms": 1982,
+          "inferenceAttempts": 84,
+          "usage": {
+            "prompt_tokens": 26072,
+            "completion_tokens": 1260,
+            "total_tokens": 27332
+          },
+          "multi": {
+            "answered": 0,
+            "exact": 0,
+            "withWrongSelection": 0,
+            "withMissingSelection": 0
+          }
+        },
+        "判断题": {
+          "total": 11,
+          "attempted": 11,
+          "answered": 11,
+          "correct": 10,
+          "abstained": 0,
+          "failed": 0,
+          "notRun": 0,
+          "accuracy": 0.9090909090909091,
+          "coverage": 1,
+          "answeredAccuracy": 0.9090909090909091,
+          "p50Ms": 1849,
+          "p95Ms": 2105,
+          "inferenceAttempts": 11,
+          "usage": {
+            "prompt_tokens": 3263,
+            "completion_tokens": 165,
+            "total_tokens": 3428
+          },
+          "multi": {
+            "answered": 0,
+            "exact": 0,
+            "withWrongSelection": 0,
+            "withMissingSelection": 0
+          }
+        },
+        "多选题": {
+          "total": 13,
+          "attempted": 13,
+          "answered": 13,
+          "correct": 13,
+          "abstained": 0,
+          "failed": 0,
+          "notRun": 0,
+          "accuracy": 1,
+          "coverage": 1,
+          "answeredAccuracy": 1,
+          "p50Ms": 1805,
+          "p95Ms": 2446,
+          "inferenceAttempts": 13,
+          "usage": {
+            "prompt_tokens": 4744,
+            "completion_tokens": 221,
+            "total_tokens": 4965
+          },
+          "multi": {
+            "answered": 13,
+            "exact": 13,
+            "withWrongSelection": 0,
+            "withMissingSelection": 0
+          }
+        }
+      }
+    },
+    {
+      "model": "deepseek-v4-pro",
+      "condition": "baseline",
+      "total": 108,
+      "attempted": 108,
+      "answered": 108,
+      "correct": 98,
+      "abstained": 0,
+      "failed": 0,
+      "notRun": 0,
+      "accuracy": 0.9074074074074074,
+      "coverage": 1,
+      "answeredAccuracy": 0.9074074074074074,
+      "p50Ms": 2062,
+      "p95Ms": 2564,
+      "inferenceAttempts": 108,
+      "usage": {
+        "prompt_tokens": 18959,
+        "completion_tokens": 1795,
+        "total_tokens": 20754
+      },
+      "multi": {
+        "answered": 13,
+        "exact": 13,
+        "withWrongSelection": 0,
+        "withMissingSelection": 0
+      },
+      "byType": {
+        "单选题": {
+          "total": 84,
+          "attempted": 84,
+          "answered": 84,
+          "correct": 74,
+          "abstained": 0,
+          "failed": 0,
+          "notRun": 0,
+          "accuracy": 0.8809523809523809,
+          "coverage": 1,
+          "answeredAccuracy": 0.8809523809523809,
+          "p50Ms": 2067,
+          "p95Ms": 2564,
+          "inferenceAttempts": 84,
+          "usage": {
+            "prompt_tokens": 14312,
+            "completion_tokens": 1320,
+            "total_tokens": 15632
+          },
+          "multi": {
+            "answered": 0,
+            "exact": 0,
+            "withWrongSelection": 0,
+            "withMissingSelection": 0
+          }
+        },
+        "判断题": {
+          "total": 11,
+          "attempted": 11,
+          "answered": 11,
+          "correct": 11,
+          "abstained": 0,
+          "failed": 0,
+          "notRun": 0,
+          "accuracy": 1,
+          "coverage": 1,
+          "answeredAccuracy": 1,
+          "p50Ms": 2032,
+          "p95Ms": 2496,
+          "inferenceAttempts": 11,
+          "usage": {
+            "prompt_tokens": 1723,
+            "completion_tokens": 165,
+            "total_tokens": 1888
+          },
+          "multi": {
+            "answered": 0,
+            "exact": 0,
+            "withWrongSelection": 0,
+            "withMissingSelection": 0
+          }
+        },
+        "多选题": {
+          "total": 13,
+          "attempted": 13,
+          "answered": 13,
+          "correct": 13,
+          "abstained": 0,
+          "failed": 0,
+          "notRun": 0,
+          "accuracy": 1,
+          "coverage": 1,
+          "answeredAccuracy": 1,
+          "p50Ms": 1942,
+          "p95Ms": 2617,
+          "inferenceAttempts": 13,
+          "usage": {
+            "prompt_tokens": 2924,
+            "completion_tokens": 310,
+            "total_tokens": 3234
+          },
+          "multi": {
+            "answered": 13,
+            "exact": 13,
+            "withWrongSelection": 0,
+            "withMissingSelection": 0
+          }
+        }
+      }
+    },
+    {
+      "model": "deepseek-v4-pro",
+      "condition": "quality",
+      "total": 108,
+      "attempted": 108,
+      "answered": 108,
+      "correct": 101,
+      "abstained": 0,
+      "failed": 0,
+      "notRun": 0,
+      "accuracy": 0.9351851851851852,
+      "coverage": 1,
+      "answeredAccuracy": 0.9351851851851852,
+      "p50Ms": 2467,
+      "p95Ms": 3210,
+      "inferenceAttempts": 109,
+      "usage": {
+        "prompt_tokens": 33971,
+        "completion_tokens": 1646,
+        "total_tokens": 35617
+      },
+      "multi": {
+        "answered": 13,
+        "exact": 13,
+        "withWrongSelection": 0,
+        "withMissingSelection": 0
+      },
+      "byType": {
+        "单选题": {
+          "total": 84,
+          "attempted": 84,
+          "answered": 84,
+          "correct": 77,
+          "abstained": 0,
+          "failed": 0,
+          "notRun": 0,
+          "accuracy": 0.9166666666666666,
+          "coverage": 1,
+          "answeredAccuracy": 0.9166666666666666,
+          "p50Ms": 2475,
+          "p95Ms": 3392,
+          "inferenceAttempts": 85,
+          "usage": {
+            "prompt_tokens": 25988,
+            "completion_tokens": 1260,
+            "total_tokens": 27248
+          },
+          "multi": {
+            "answered": 0,
+            "exact": 0,
+            "withWrongSelection": 0,
+            "withMissingSelection": 0
+          }
+        },
+        "判断题": {
+          "total": 11,
+          "attempted": 11,
+          "answered": 11,
+          "correct": 11,
+          "abstained": 0,
+          "failed": 0,
+          "notRun": 0,
+          "accuracy": 1,
+          "coverage": 1,
+          "answeredAccuracy": 1,
+          "p50Ms": 2636,
+          "p95Ms": 3186,
+          "inferenceAttempts": 11,
+          "usage": {
+            "prompt_tokens": 3252,
+            "completion_tokens": 165,
+            "total_tokens": 3417
+          },
+          "multi": {
+            "answered": 0,
+            "exact": 0,
+            "withWrongSelection": 0,
+            "withMissingSelection": 0
+          }
+        },
+        "多选题": {
+          "total": 13,
+          "attempted": 13,
+          "answered": 13,
+          "correct": 13,
+          "abstained": 0,
+          "failed": 0,
+          "notRun": 0,
+          "accuracy": 1,
+          "coverage": 1,
+          "answeredAccuracy": 1,
+          "p50Ms": 2089,
+          "p95Ms": 2816,
+          "inferenceAttempts": 13,
+          "usage": {
+            "prompt_tokens": 4731,
+            "completion_tokens": 221,
+            "total_tokens": 4952
+          },
+          "multi": {
+            "answered": 13,
+            "exact": 13,
+            "withWrongSelection": 0,
+            "withMissingSelection": 0
+          }
+        }
+      }
+    }
+  ],
+  "paired": [
+    {
+      "model": "deepseek-v4-flash",
+      "fixed": 2,
+      "regressed": 1,
+      "bothWrong": 5,
+      "netCorrect": 1,
+      "baselineWilson95": [
+        0.8722236366714627,
+        0.9682518094750524
+      ],
+      "qualityWilson95": [
+        0.8840656320566886,
+        0.9742922703908161
+      ]
+    },
+    {
+      "model": "deepseek-v4-pro",
+      "fixed": 4,
+      "regressed": 1,
+      "bothWrong": 6,
+      "netCorrect": 3,
+      "baselineWilson95": [
+        0.8379014075477644,
+        0.9489266696957817
+      ],
+      "qualityWilson95": [
+        0.8722236366714627,
+        0.9682518094750524
+      ]
+    }
+  ],
+  "samples": [
+    {
+      "id": "cmmlu-security-129",
+      "questionHash": "cc68c1e88a93560a9fa32b91860a77aa0895f8bb42da9d12c31c5cb4e0f4bbc0"
+    },
+    {
+      "id": "entailment-1",
+      "questionHash": "c6d1d4eaf0c0ba5965b990e317df33f8cfac7d2a4a92ee572e27b2d44d023332"
+    },
+    {
+      "id": "cmmlu-security-114",
+      "questionHash": "0f703c62d96ae8bb70b5d8d2825b2b3fcc36bc974f4784d9adcc619eca92f5e2"
+    },
+    {
+      "id": "access-4",
+      "questionHash": "2d5e87b2ac8390415b5d387f3e0ff060e47ba26600ba105ca17509479e262680"
+    },
+    {
+      "id": "entailment-9",
+      "questionHash": "944fd16e7c079c5a6cfbb52f29ca2e19780db52ccbde09b75345512c26c76af7"
+    },
+    {
+      "id": "retention-1",
+      "questionHash": "79688fa1eef5dc90f9e7f7e0729d7df39858c401ca063e18604b20904a08db1b"
+    },
+    {
+      "id": "eligibility-1",
+      "questionHash": "671452d25abc4b21f51ac6841faf8e8433c34b6c213e06d4f77e8ed6651e8fc9"
+    },
+    {
+      "id": "cmmlu-security-126",
+      "questionHash": "8c68f28701b26d0fdb04b7a58dab683b358b4fcbb3de24bf9d1cc45b65823aee"
+    },
+    {
+      "id": "cmmlu-security-29",
+      "questionHash": "e5d3d9a35803cd44b36321f919763e1d8257b5539f17c1cf09a4c852383926d9"
+    },
+    {
+      "id": "cmmlu-security-135",
+      "questionHash": "aef6fabb1664e2654018a6346464394bdfcd8c048fe656d5bedcb152e45d217c"
+    },
+    {
+      "id": "cmmlu-security-79",
+      "questionHash": "4b6504274f1042f537af55e129df38894d01601700b9b241ddfd9dd88234f318"
+    },
+    {
+      "id": "cmmlu-security-128",
+      "questionHash": "0932575f05127d1bd7a3e8594e3ae189c909d5a109f698e0bd770bf503e7ddde"
+    },
+    {
+      "id": "cmmlu-security-71",
+      "questionHash": "e85d8d5ea1f82f41e9b9284c2ea3efcfdeefbf07874d955be2728ea79f03afb2"
+    },
+    {
+      "id": "cmmlu-security-111",
+      "questionHash": "237ec187c09245f97929aeff6cd19cb8437c71ce6a8592c9562df6125ffbec1d"
+    },
+    {
+      "id": "cmmlu-security-104",
+      "questionHash": "baf3fd71232d6b39c227e15b5ece34d8926904afb77dfff60a6c394e7368b8fa"
+    },
+    {
+      "id": "cmmlu-security-39",
+      "questionHash": "3bbad7ca7dc532147dc662ea148ecdfa81b962db383e2aa569ead90b32fb1ebb"
+    },
+    {
+      "id": "eligibility-5",
+      "questionHash": "83028622eb22aca14e455525560c7627e4edaa2036299f7fd1c1aa8bf4cafd56"
+    },
+    {
+      "id": "cmmlu-security-133",
+      "questionHash": "81366520b88c555dad0ccdf9dedba56219a47ffde93b3cab18d24bbae3a9f850"
+    },
+    {
+      "id": "cmmlu-security-98",
+      "questionHash": "0a74bde5855ab9c2bf26ff8c49d2e94f58c0e42cc5e184d7d5349df6f6d5d53a"
+    },
+    {
+      "id": "cmmlu-security-116",
+      "questionHash": "53e3d0980df7fb49cd470fa078d522119b7e505aa5c2a5cc74bbae58944fabe4"
+    },
+    {
+      "id": "cmmlu-security-55",
+      "questionHash": "4c91d2c1a021025e2318f519dc17d9f3c54674ef3d6f4fdf85ba6d57542a3c36"
+    },
+    {
+      "id": "entailment-4",
+      "questionHash": "414583c5860df99dea337b9f39f56f0c033aa9a01440ba18a9256ef601384864"
+    },
+    {
+      "id": "cmmlu-security-61",
+      "questionHash": "ff2af85c837ee4693000d5c0c4fca4783ff8f519ce7bc082115406a8c156dee2"
+    },
+    {
+      "id": "retention-5",
+      "questionHash": "4a8b1d59a4009c7ea09a0fd020b3b41730595adeec52a889a1b0690fa48e4c0d"
+    },
+    {
+      "id": "cmmlu-security-123",
+      "questionHash": "bc39a370af73474d9891442fbc9763667b8d53f09d78bd4e92865361bca33489"
+    },
+    {
+      "id": "entailment-2",
+      "questionHash": "56479ed4d8e8bdbd473bc2e43a25fb4038dd3692e45588c0737ade3d12ced6e2"
+    },
+    {
+      "id": "cmmlu-security-47",
+      "questionHash": "e3dff26b261cdec4435184660afa8a178a6c004f3b77e43ff8f5ad3ad8cc3f44"
+    },
+    {
+      "id": "cmmlu-security-22",
+      "questionHash": "3ccb3fd13ad63c3a95759cf4dc47428f1509e4d01b24c37ef6ff31d4618a181a"
+    },
+    {
+      "id": "cmmlu-security-102",
+      "questionHash": "2dbe8ac26b5174b2e9f2fbeaec1d74febdc86527b965554ec54a57081adf5fea"
+    },
+    {
+      "id": "access-2",
+      "questionHash": "4f6b87fac76f3f353eca2b833aac64ad3c54e72b3e4a15bb4daa280ecc32457b"
+    },
+    {
+      "id": "priority-7",
+      "questionHash": "3732f885cf199fe55694fd74dbc2ff3d7ca161bc227fb70b2236dd7c60ca49eb"
+    },
+    {
+      "id": "cmmlu-security-72",
+      "questionHash": "d2109e014de357768086cbb5ea2fc4faf27d9818ac914955ebc4736ae704a35f"
+    },
+    {
+      "id": "cmmlu-security-73",
+      "questionHash": "eb80b67982964ee3765a6335fec4bcffd9dec7b9429ab5700f92c719296589da"
+    },
+    {
+      "id": "cmmlu-security-125",
+      "questionHash": "2190d25190bf22ef7ce59065538c1e4a46e58bcc1be830cbb85068a7a3e85073"
+    },
+    {
+      "id": "cmmlu-security-124",
+      "questionHash": "bb61cf798e5c2cc4b54195b56eca8d471edff6eedd836c9b3fda415877684478"
+    },
+    {
+      "id": "access-10",
+      "questionHash": "e6f712a09dfa543de2cfdb3565a7f0f347468bb89f1cfc4e22ad0b7e2fa2a457"
+    },
+    {
+      "id": "priority-3",
+      "questionHash": "465dea4aeaf1ffda1411d77a337fb766da38c1cf363cf756cc4a0e8f7303fc92"
+    },
+    {
+      "id": "cmmlu-security-101",
+      "questionHash": "1ec364a4b4f903b67a83d19edd7779a83581109875a926417b13839d7f3a483d"
+    },
+    {
+      "id": "cmmlu-security-5",
+      "questionHash": "d8dbac5b6c6a28090c0e617b21276f38521180d39db7732cf1fc2cde9bb492b0"
+    },
+    {
+      "id": "cmmlu-security-69",
+      "questionHash": "ce094f38b19e3ad0a225a9fc6424857488f7f6762f5f4d518e20051f853e1da8"
+    },
+    {
+      "id": "eligibility-3",
+      "questionHash": "e9495fa7ff311cdf5f0a98e94f9d2ea73a5e9eb52f85151fbaed2a16a37e1744"
+    },
+    {
+      "id": "cmmlu-security-35",
+      "questionHash": "df1f3a8e052996a373ebd68be1a042e1e4a31ee93f7809ea48d8c421102f0f3c"
+    },
+    {
+      "id": "cmmlu-security-17",
+      "questionHash": "38e3338664931916fae006bc186d2895129892d801622efaaadd8b3fd218f56b"
+    },
+    {
+      "id": "cmmlu-security-96",
+      "questionHash": "90582bb6180384ced474e1ce998ec5a225aa3832aa3ed499aa06999a2952e1cd"
+    },
+    {
+      "id": "ledger-9",
+      "questionHash": "f876f85f04b569037538403d2ea7e0b6c5687404883b18b8059d98c60789a6d9"
+    },
+    {
+      "id": "cmmlu-security-113",
+      "questionHash": "5bf0dd5a1c2b81a807845dfe99d1acdfc1f6912ac2f794fb6455e14ec8bba15b"
+    },
+    {
+      "id": "entailment-10",
+      "questionHash": "4a48124feb5b2e57b89cde7d0b793599d6e93a3da2c68566200a0fe591bf3e23"
+    },
+    {
+      "id": "cmmlu-security-118",
+      "questionHash": "cacb511c4c4523f563b963632d62cd78207d4653df2e3e5272bd18063bceb5c3"
+    },
+    {
+      "id": "cmmlu-security-108",
+      "questionHash": "52afe4821506b093ec573765111f2c55126d2afd5ea1996c5c96af08e333077f"
+    },
+    {
+      "id": "access-6",
+      "questionHash": "d0d569f6f1c315dec23bcb6be7965d32133529e0858941272a5bee095ff76abe"
+    },
+    {
+      "id": "cmmlu-security-121",
+      "questionHash": "79b59331baa3ff240925658df315e6c673c5d74f49291d22a6bfb83f4e5c5440"
+    },
+    {
+      "id": "eligibility-6",
+      "questionHash": "dbc1c3d594fef0b57d51f5d3304776844238fd16372f21f8e7704d9cf5738a1e"
+    },
+    {
+      "id": "eligibility-8",
+      "questionHash": "582a69fa7055189ea8706c95f8044b695d890bdd59fcd54079c8746dbad7bb2e"
+    },
+    {
+      "id": "cmmlu-security-14",
+      "questionHash": "1acc579aee61ab51aca94426a43c254ccecf1a73f41f97d9c2f941fc3c15a025"
+    },
+    {
+      "id": "cmmlu-security-12",
+      "questionHash": "58f997a3c53d1d95c0c02200571d0e7e393b8a5077b03d0e84e89579a24298c3"
+    },
+    {
+      "id": "cmmlu-security-120",
+      "questionHash": "51fe008b328395a473e968597db63807777f68640617f59feafeeffe6cb37077"
+    },
+    {
+      "id": "cmmlu-security-83",
+      "questionHash": "0aa5cd6382beed4cb40ec43af6b25dbdb542b5db3413b7ad78634e3ca26744bb"
+    },
+    {
+      "id": "cmmlu-security-46",
+      "questionHash": "04bb8450d4467c211792a005235c6d92b08b9e381ea8ec3ae7e3da15eb3764b1"
+    },
+    {
+      "id": "cmmlu-security-66",
+      "questionHash": "2c83ebb95b0d0eb67120a03af6bc564e095196b9447e319bebc8fb77e05f4eba"
+    },
+    {
+      "id": "cmmlu-security-7",
+      "questionHash": "eb74a84a1c0d9b909d77cb1c4f5765d8981b2efbab8a8725c97cb956f2ec09ec"
+    },
+    {
+      "id": "cmmlu-security-107",
+      "questionHash": "2931affc167376ef1f509291efbc8f10f8f26ab5d4cf32067cf2667dc4375fc0"
+    },
+    {
+      "id": "entailment-6",
+      "questionHash": "1763652f6ecdff84ddce6f4b035c3de142b1d3cbac8452261db82e36797e1b24"
+    },
+    {
+      "id": "cmmlu-security-42",
+      "questionHash": "09f015dc9788e2a0eafa2284672bf43779e15931a6bf5db2750da9a89dc870b8"
+    },
+    {
+      "id": "cmmlu-security-94",
+      "questionHash": "4aab5c17b6b38951c99f954325cb7b1078ef2d62a48463f18eb6bbe068e62640"
+    },
+    {
+      "id": "priority-2",
+      "questionHash": "8b86d77210f2a3ca4e9b3afebcfdcad77f86317dbc3e19903a825eb209bcd835"
+    },
+    {
+      "id": "cmmlu-security-43",
+      "questionHash": "bd326a227e4a79cd20ca706592227c020fb19c94036108fcd466662f17bea460"
+    },
+    {
+      "id": "ledger-3",
+      "questionHash": "2752e241a05e9a5c9ada5162859d8fee72f8fb104802cab8801786de8e801557"
+    },
+    {
+      "id": "retention-4",
+      "questionHash": "c6bda4a0400a652c1e3837ae4de3c830f8b5290ba8f02eb091266233aea1c863"
+    },
+    {
+      "id": "cmmlu-security-34",
+      "questionHash": "cb6778b4acdcb0fc567d60d4ee041002e1dc2a821f7d54572fe6e8a42cc5e55d"
+    },
+    {
+      "id": "cmmlu-security-9",
+      "questionHash": "a1395230b4f06c425c84ef55d4094c9380c916cf6eda56c584e65fbdb729773b"
+    },
+    {
+      "id": "cmmlu-security-117",
+      "questionHash": "189d6a2fa7f4c6b514c0ca894b3218f2ecedb73cc2f04c5553898ed2290dbc28"
+    },
+    {
+      "id": "eligibility-10",
+      "questionHash": "f567ce16e7863282e74263f69645e000bf560c605de16820488b07205567c693"
+    },
+    {
+      "id": "cmmlu-security-105",
+      "questionHash": "587414ca5083537257e2ffe5129708ec0b4333c3371837b39e616def4442e335"
+    },
+    {
+      "id": "cmmlu-security-13",
+      "questionHash": "474ed7fd527fb30888187c2f8b372b8b182a00e0c9d023b014e71edbcb68cdd3"
+    },
+    {
+      "id": "cmmlu-security-130",
+      "questionHash": "8ef684874a1a38a867124c1ce55242da5c9b48f08c700ab4cb4d418d8584ef31"
+    },
+    {
+      "id": "cmmlu-security-95",
+      "questionHash": "7d2447a1cb4174cdc7035d60002a445488876998fe6c1e9872aa7ee93ff59dac"
+    },
+    {
+      "id": "cmmlu-security-10",
+      "questionHash": "75825d1a0d6a77b40bbd420141fcb207d55bef088e079d46e7e76b116d54d794"
+    },
+    {
+      "id": "cmmlu-security-65",
+      "questionHash": "89a2833a9f7f4b0a0075d80aacbeed4f1528b6c0bcb6f335135c0cbd0088b7e1"
+    },
+    {
+      "id": "cmmlu-security-60",
+      "questionHash": "a4f636c3fa1d2094d1a9e6c3d17f85296329000cb0db9abdb950741eeaea950d"
+    },
+    {
+      "id": "cmmlu-security-32",
+      "questionHash": "04e8bab509b92f09289f39eb967f4b2ce1c3a5d3afccd37a1c9bd57991cd7eb1"
+    },
+    {
+      "id": "ledger-2",
+      "questionHash": "8c2b55e95cf07a907c439cdc55b5c865a9e5e4dedce023d906b9d93ecd181b81"
+    },
+    {
+      "id": "cmmlu-security-86",
+      "questionHash": "3f67bec4c7c0af23a010792b09fa7f61b475fb6ba63aa6b474d97a4becbe960f"
+    },
+    {
+      "id": "cmmlu-security-106",
+      "questionHash": "913cac27d080f897271b7870db8cc06fadbc04ff49204906047aea95c62d005b"
+    },
+    {
+      "id": "cmmlu-security-87",
+      "questionHash": "63608198920407e479ec78c874cc0ade024cdf08abf3f9f178cb47024800a53a"
+    },
+    {
+      "id": "retention-8",
+      "questionHash": "9dc05353028083081c33fd88bd81cbe44114da76b2a965eb477e56791d6d10b8"
+    },
+    {
+      "id": "entailment-8",
+      "questionHash": "f287f016adddade0686bca239ce4f54f605f035b515aefe896fcf64424f5809d"
+    },
+    {
+      "id": "cmmlu-security-109",
+      "questionHash": "247b11971369e44c76351595b99e71df3a6aae0fbf5dfefaa3b4adea3d6bcd80"
+    },
+    {
+      "id": "cmmlu-security-49",
+      "questionHash": "58eeda269b6d7119b591b3d856bd84619437bfc9f45ee244032fe6d6e1fca0be"
+    },
+    {
+      "id": "ledger-10",
+      "questionHash": "1231c4205b24ef561449ff92279f2b8dfef74e2cc037de18b66da0488012999c"
+    },
+    {
+      "id": "eligibility-2",
+      "questionHash": "764e30c74f4e5a082b6484cb2ab78f47c0f7504e4337c4f55fb5388fa6b44dbe"
+    },
+    {
+      "id": "cmmlu-security-91",
+      "questionHash": "56777837879a479f853fdf325e7c65375f32a9dbeab5ce782d05339c668aace0"
+    },
+    {
+      "id": "cmmlu-security-2",
+      "questionHash": "0fee03b6235a7a30d66ecb4157cae364d6545f789076236bfdfa831efedacc62"
+    },
+    {
+      "id": "cmmlu-security-1",
+      "questionHash": "836a0f79afc68a4a5ea53a748f8d101535c85a9c6464d31c322d0260658e18de"
+    },
+    {
+      "id": "cmmlu-security-3",
+      "questionHash": "604dd9d983ccf88c871af1c9960af6134831e138163425e16d4531f0ab8f45fd"
+    },
+    {
+      "id": "cmmlu-security-19",
+      "questionHash": "ad700f7036cd4cf462a42932f41fb10837a5e79aad2c309dec9b3e41ecd826d7"
+    },
+    {
+      "id": "cmmlu-security-88",
+      "questionHash": "a6a76d4e1b48f2072cf989a3ac58242d3276726cb426841094bb35fb6e6efa89"
+    },
+    {
+      "id": "cmmlu-security-18",
+      "questionHash": "86d918d5e5ea97d10e814ecc577a8b509f118faeae5efd002a9d8fb38b03f108"
+    },
+    {
+      "id": "retention-3",
+      "questionHash": "f0ee57777987b8a46e8a067a6073a1148ebd779ed236b3c4416608c8e01ffb6b"
+    },
+    {
+      "id": "cmmlu-security-127",
+      "questionHash": "0d7a1db763f56ad54b819950b05ee71e34965e8f466d5bd39901e583dc17289d"
+    },
+    {
+      "id": "priority-9",
+      "questionHash": "9c6f1006abb80f242208f3c01e790f3c5d0146fca5e269129108839212362119"
+    },
+    {
+      "id": "cmmlu-security-100",
+      "questionHash": "c57e2f7c16e21ca0d7ddd512292e9fbafe6fa1dacdaa0f366e144487b0ef8daf"
+    },
+    {
+      "id": "cmmlu-security-122",
+      "questionHash": "a6f2959fad8dec4219f13092b292d466b1054a5fe97c5e534c14642098ba9ccb"
+    },
+    {
+      "id": "cmmlu-security-48",
+      "questionHash": "a52db647baa847c2877ff44db30142cc6f0c8c145a5c2e6f71c6455362feadc3"
+    },
+    {
+      "id": "priority-4",
+      "questionHash": "0fe32fdac8d70b836b047c12bd6b9a8041302e4fd974e588476b5a3a49d552a4"
+    },
+    {
+      "id": "cmmlu-security-37",
+      "questionHash": "365e34876c1c230dad022c3eddf6d6a76b1b79a16f01e437f3771f79ee6a147d"
+    },
+    {
+      "id": "cmmlu-security-59",
+      "questionHash": "99e090f76b0dbc86c6b2ea8b3f2a7b577f5fc3e40f3e106709480a48f0bc88c1"
+    },
+    {
+      "id": "cmmlu-security-119",
+      "questionHash": "9e269d1131f10ac85bc2418a6d6b001895034ad0324e0d47cbd9a8fe88ca760f"
+    },
+    {
+      "id": "retention-2",
+      "questionHash": "ff5303a5370bc65367ea026cefcc2b7395a373b4dbc18988ccb34efeeb1335dd"
+    }
+  ]
+}

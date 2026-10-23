@@ -58,7 +58,19 @@ Jev Key 留空时可仅使用兜底；JEV_API_KEY 是 Key 的环境变量后备�
 
 可选 Jev 配置同 A：若有 config.json 则读取 jev 段；没有该文件也可通过 JEV_API_KEY/JEV_PROXY 启用 Jev。jev.model、confidenceFloor、noulProbabilityFloor 在两个服务变体中一致。
 
-云服务模型在首次兜底时从可用模型目录选择，优先顺序为 deepseek-v4-flash、glm-5.3-flash、deepseek-v4.1-flash、auto、default，再选轻量模型或首个可用模型。可用 `WB_MODEL` 显式指定；模型是否可用以后台实际响应为准。
+先查询自己账号可用的模型，再用 `WB_MODEL` 固定选择。目录中有多个模型但未指定、指定模型不存在或不可用时，云答题返回422并暂停，不按 flash/lite/mini 名称猜测或静默换模型；只有一个可用模型时可直接使用它。模型在服务进程内固定，更换后需重启答题服务。Jev 已成功作答的题不调用云目录或云推理。
+
+```powershell
+node scripts/evaluate-workbuddy.mjs --config wb-public-config.json --list-models
+$env:WB_MODEL = 'deepseek-v4-flash' # 示例：先确认自己的模型目录中存在这个 ID
+node wb-launch.mjs --workbuddy
+```
+
+上述环境变量只作用于当前 PowerShell 及其子进程；在另一个窗口双击 `.cmd` 不会继承它。可在同一 PowerShell 运行入口，或在自己的启动脚本中设置变量，不必改认证配置。模型取舍应依据同题实测，名称和单次成绩不能证明正确率。
+
+云模式使用独立答题指令，保留否定词、数字和题型，多选检查漏选/错选，判断先确认真假再匹配字母。遇到乱码、缺失内容或无法区分的重复选项会暂停；云模型主动返回空答案时也暂停，不强迫补猜。页面题干/选项中的图片、公式、私用区乱码会在发送前拦截，当前文字接口不能理解这些内容。通过结构检查的答案仍可能答错。
+
+可选脱敏诊断：在启动服务前设置 `$env:WB_DIAGNOSTICS = '1'`，默认关闭。服务将请求 ID、题目与选项哈希、题型、上游、模型 ID、尝试次数、答案字母、耗时及上游实际返回的 token 用量写入 `logs/answer-diagnostics.jsonl`；约5MB滚动一次，仅保留当前文件及 `.1`。没有上游模型版本/token 数据时不虚构。不会记录完整题面、Key、Cookie 或页面 URL。新脚本的浏览器控制台同时输出相同请求 ID、返回字母、选项文本哈希、核验后的选中状态及可确认的保存值；无法确认的保存值为 null。浏览器日志是尽力记录，导航可能打断它，日志失败不影响答题。关闭变量并重启服务、刷新课程页即可关闭新诊断。
 
 ## 配置方式 C：只用 Jev
 
@@ -119,7 +131,7 @@ runner 设置唯一 console 驱动标志。V3 默认不注入；`V3_ENABLED=1` �
 
 连续视频/连续测验通过新文档、iframe或播放器身份判断是否切换完成，不能只看“视频/测验”标题。无法确认新内容时会安全停止。提交后等待成绩/任务完成标记，默认10分钟警告、15分钟停止等待，**不会因超时跳过未完成测验**；对应 app.configs.quizCompletionWarningMs 和 quizCompletionTimeoutMs（也支持 quizWarnMs / quizStopMs）。页面结构、跨源 iframe 或任务完成标记变化可能需要人工检查。
 
-本地答题请求的总截止为14分钟，Jev单次30秒、兜底单次120秒；页面请求上限15分钟。兜底最多两次尝试：坏 JSON、缺题/无效选项、网络/5xx、400/422/429可重试；通用 API 第二次去掉 response_format。401/403等授权错误不重试。WorkBuddy 两次流式尝试都有截止。重试耗尽后报错，禁止回用不可信的旧答案。
+本地答题请求的总截止为14分钟，Jev单次30秒；页面请求上限15分钟。兜底最多两次尝试：坏 JSON、缺题/无效选项、网络/5xx、上游400/422/429可重试；通用 API 第二次去掉 response_format，单次120秒。401/403等授权错误不重试。WorkBuddy 的目录获取和两次流式尝试共享120秒截止；本地输入不完整、模型未明确选择或主动空答案使用422停止，不进行格式重试。重试耗尽后报错，禁止回用不可信的旧答案。
 
 ## 多实例（本地功能，真实多开待验收）
 
@@ -150,17 +162,30 @@ node wb-runner.mjs 2 --openai
 
 `node scripts/check-local-network.mjs` 是可选的 Edge 本地网络权限复测（Edge ≥145）。它短暂打开临时浏览器档案，使用伪造 HTTPS 页面和合成回环服务，验证拒绝权限时失败、runner 授权后 `/health` 与 `/answer` 成功、相机与其他来源权限不变；不读取用户配置、不登录账号，也不调用付费上游。
 
+云答题同题评测工具默认只生成离线题号清单，不调用模型。随仓库附带60道独立编写、答案由规则计算的合成题，不能代表真实课程知识水平。开发集/留出集按固定哈希划分，选项顺序保留；提示词调整应只用开发集。也可用 `--dataset` 指定自己的带标准答案 JSON（`{cases:[{id,type,question,options:[{id,text}],gold:[选项id]}]}`），标准答案和评测标签不会发给模型。
+
+```powershell
+node scripts/evaluate-workbuddy.mjs --models deepseek-v4-flash,deepseek-v4-pro
+# --run 才会产生云推理用量；先确认额度、候选模型和数据使用权限
+node scripts/evaluate-workbuddy.mjs --config wb-public-config.json --models deepseek-v4-flash,deepseek-v4-pro --split holdout --run
+```
+
+默认结果存入被忽略的 `cloud-evaluation/result.json`。每个候选在同一实现和固定题集上比较旧/新提示词，最多两次尝试，默认4路并发；不读取 config.json、Jev Key 或课程页面，不混入 Jev 成绩。报告原始正确率（含失败/未作答）、覆盖率、已答准确率、分题型、多选错选/漏选、耗时与 token；额度耗尽停止后续任务并保留未执行分母。评测结果不含完整题面。实网对照与限制见 [第一批验收记录](docs/audit/2026-10-23-workbuddy-quality-phase1.md)。
+
 | 文件 | 作用 |
 |---|---|
 | wb-answer-service.mjs | Jev + 兼容 API 服务 |
 | wb-answer-service.workbuddy.mjs | Jev + WorkBuddy 服务 |
 | wb-service-core.mjs | 答案策略、校验、回环协议 |
+| wb-cloud-quality.mjs / wb-answer-diagnostics.mjs | 云模型固定、专用指令、输入检查及脱敏诊断 |
 | wb-runner.mjs / wb-runner-runtime.mjs | Edge、注入、健康会话、实例锁 |
 | wb-launch.mjs / 启动学习通AI挂机.cmd / _find-node.cmd | Node 探测、启动与模式选择 |
 | browser/course-engine.js | 独立编写的播放器、测验与导航源文件 |
 | browser/exam-engine.js | 手动启动的单题答题适配、选项映射及跨页继续 |
 | browser/status-panel.mjs | 常驻状态栏与答题模式切换 |
+| browser/answer-diagnostics.mjs | 输入完整性检查与可关闭的选项核对 |
 | scripts/build-browser.mjs | 生成或只读核对两个浏览器入口 |
+| scripts/evaluate-workbuddy.mjs / scripts/cloud-evaluation.mjs | 仅云 SDK 的同题对照及计分 |
 | deepseek-console/xuexitong-console.js | 生成的视频/答题统一驱动 |
 | xuexitong_v3.user.js | 生成的独立 V3 播放器 |
 | tests/ | 无真实凭据回归测试 |

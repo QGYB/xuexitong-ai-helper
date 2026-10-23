@@ -70,6 +70,7 @@ function createManualExamController(token) {
       return {node,marker,value,letter,text:label};
     });
     if(new Set(choices.map(c=>c.value)).size!==choices.length||!question||question.length>500)throw new Error('题干或选项映射无效');
+    assertCompleteAnswerText([title,...nodes.map(node=>node.querySelector('.answer_p'))],[question,...choices.map(c=>c.text)]);
     const input=inputs[0],allowed=choices.map(c=>c.value);
     const selected=()=>{
       const raw=clean(input.value);
@@ -96,6 +97,7 @@ function createManualExamController(token) {
           if(generation!==state.generation)throw new Error('答题已取消');
           if(response.status!==200||!response.ok){const error=new Error(`答题服务返回 HTTP ${Number(response.status)||'未知'}`);error.retryable=[408,425,429].includes(response.status)||response.status>=500;throw error;}
           if(path==='/health')return true;
+          try{state.requestId=response.headers?.get?.('X-Xuexitong-Request-Id')||null;}catch{}
           try{return await response.json();}catch{const error=new Error('答题服务未返回有效 JSON');error.retryable=true;throw error;}
         })(),
         new Promise((_,reject)=>{abort=()=>reject(new Error('答题已取消'));controller.signal.addEventListener('abort',abort,{once:true});state.requestTimer=host.setTimeout(()=>{const error=new Error('答题服务响应超时');error.retryable=true;reject(error);controller.abort();},timeoutMs);})
@@ -126,6 +128,7 @@ function createManualExamController(token) {
         choice.node.click();
       }
       if(!current(s,generation)||s.choices.some(c=>s.selected().has(c.value)!==picked.includes(c.letter)))throw new Error('页面未保存预期选中状态，已停止翻页');
+      if(host.__WB_ANSWER_DIAGNOSTICS__===true)void traceAnswerApplication(state.requestId,[{wire:s.wire,returned:picked,observed:s.choices.map(c=>({letter:c.letter,selected:s.selected().has(c.value),storedValue:c.value}))}]);
       state.seen.push(s.qid);
       const next=all(doc,'a,button').filter(n=>visible(n)&&text(n)==='下一题'&&/^\s*getTheNextQuestion\(\s*1\s*\)\s*;?\s*$/.test(n.getAttribute('onclick')||''));
       if(next.length!==1){stop('当前题已选择；未自动交卷，请检查试卷并手动交卷');return;}

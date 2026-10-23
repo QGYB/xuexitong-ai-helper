@@ -95,6 +95,29 @@ function installStatusPanel({withAnswer = true} = {}) {
   ensure();
   return panel;
 }
+function assertCompleteAnswerText(nodes,values) {
+    if(nodes.some(node=>node?.querySelector('img,canvas,svg,math,mjx-container')))throw new Error('题目含图片或公式，当前文字接口无法完整提取，请手动核对');
+    if(values.some(value=>/[\uFFFD\uE000-\uF8FF\u{F0000}-\u{FFFFD}\u{100000}-\u{10FFFD}]/u.test(value)))throw new Error('题干或选项有乱码，已停止自动作答');
+    if(new Set(values.slice(1).map(value=>value.replace(/\s+/g,' ').trim())).size!==values.length-1)throw new Error('存在无法区分的重复选项，已停止自动作答');
+}
+async function traceAnswerApplication(requestId,rows) {
+    const host=window;if(host.__WB_ANSWER_DIAGNOSTICS__!==true)return;
+    try{
+        if(!host.crypto?.subtle||!host.TextEncoder)return;
+        const hash=async text=>Array.from(new Uint8Array(await host.crypto.subtle.digest('SHA-256',new host.TextEncoder().encode(text)))).map(x=>x.toString(16).padStart(2,'0')).join('');
+        const id=typeof requestId==='string'&&/^[a-f0-9-]{36}$/i.test(requestId)?requestId:null;
+        for(const {wire,returned,observed} of rows){
+            const event={requestId:id,questionId:wire.id,questionHash:await hash(JSON.stringify([wire.type,wire.question,wire.options.map(o=>[o.letter,o.text])])),type:wire.type,
+                returnedLetters:returned.filter(letter=>/^[A-H]$/.test(letter)),options:[]};
+            for(const option of wire.options){
+                const actual=observed.find(item=>item.letter===option.letter);
+                event.options.push({letter:option.letter,textHash:await hash(option.text),expectedSelected:returned.includes(option.letter),observedSelected:actual?.selected===true,
+                    storedValue:typeof actual?.storedValue==='string'&&/^(?:[A-H]{1,8}|true|false)$/.test(actual.storedValue)?actual.storedValue:null});
+            }
+            host.console.log('[学习助手][答题核对]',JSON.stringify(event));
+        }
+    }catch{ /* Diagnostic failures never change answer application or submission. */ }
+}
 /* Independently authored course controller. This function is embedded by the builder. */
 function createCourseController(mode, token, initialFlow = 'auto') {
   const host = window;
@@ -328,6 +351,7 @@ function createCourseController(mode, token, initialFlow = 'auto') {
       if (type === '判断题' && controls.length !== 2) reject('判断题必须恰有两个选项');
       const options = controls.map((control, index) => ({ letter: letters[index], text: controlLabel(control, box).replace(/^[A-H](?:\s*[.、．:：)）]\s*|\s*\n\s*)/i, '').trim() }));
       if (!question || question.length > 500 || options.some(o => !o.text || o.text.length > 500)) reject('题干或选项超出支持范围');
+      assertCompleteAnswerText([title,...controls.map(c=>optionTarget(c,box))],[question,...options.map(o=>o.text)]);
       return { box, controls, targets: controls.map(c => optionTarget(c, box)), wire: { id: i + 1, type, question, options } };
     });
     if (retried) quizRetries.delete(entry.doc);
@@ -552,6 +576,7 @@ function createCourseController(mode, token, initialFlow = 'auto') {
           const error = new Error(`本地答题服务返回状态 ${Number(response.status) || '未知'}`);
           error.retryable = [408, 425, 429].includes(response.status) || (response.status >= 500 && response.status <= 599); throw error;
         }
+        try { record.requestId=response.headers?.get?.('X-Xuexitong-Request-Id')||null; } catch { /* Optional diagnostic header. */ }
         try { return await response.json(); }
         catch { const error = new Error('答题响应不是有效JSON'); error.retryable = true; throw error; }
       };
@@ -561,6 +586,7 @@ function createCourseController(mode, token, initialFlow = 'auto') {
       const answers = validateAnswers(payload, snapshot);
       record.answerApplied = true;
       applyAnswers(snapshot, answers);
+      if(host.__WB_ANSWER_DIAGNOSTICS__===true)void traceAnswerApplication(record.requestId,snapshot.rows.map(row=>({wire:row.wire,returned:answers.get(row.wire.id),observed:row.controls.map((control,i)=>{const legacy=legacyChoice(control,row.box,letters[i]);return {letter:letters[i],selected:selected(control),storedValue:legacy?.storedValue||legacy?.letter||control.value||null};})})));
       const submit = submitControl(snapshot.entry.doc);
       if (!submit || !unchanged(snapshot) || completion(snapshot.entry)) throw new Error('当前测验或成绩状态不允许提交');
       record.dialogsBefore = new Set(submissionDialogs(snapshot.entry).filter(visible));

@@ -3,7 +3,9 @@ import {readFileSync} from 'node:fs';
 import {fileURLToPath,pathToFileURL} from 'node:url';
 import {fetch as undiciFetch,ProxyAgent} from 'undici';
 import {createWorkBuddyCloud} from '@tencent-ai/workbuddy-cloud-sdk';
-import {PORT,SYSTEM_PROMPT,loadConfig,createAnswerResolver,retryAnswers,createLocalService,abortable} from './wb-service-core.mjs';
+import {PORT,loadConfig,createAnswerResolver,createLocalService} from './wb-service-core.mjs';
+import {createCloudAnswerer} from './wb-cloud-quality.mjs';
+import {createAnswerDiagnostics} from './wb-answer-diagnostics.mjs';
 const HERE = fileURLToPath(new URL('.',import.meta.url));
 
 export async function startService({directory = HERE, port = PORT, createCloud = createWorkBuddyCloud, jevFetch = undiciFetch, env = process.env} = {}) {
@@ -25,40 +27,11 @@ export async function startService({directory = HERE, port = PORT, createCloud =
         if (!res.ok) { await res.body?.cancel().catch(() => {}); throw new Error(`Jev HTTP ${res.status}`); }
         return (await res.json()).answers;
     } : null;
-    let selected;
-    async function pickModel(signal) {
-        if (env.WB_MODEL) return env.WB_MODEL;
-        if (!selected) {
-            selected = abortable(cloud.llm.models.list(signal),signal).then(models => {
-                const usable = models.filter(m => m.disabled !== true && m.enabled !== false);
-                if (!usable.length) throw new Error('云服务模型列表为空');
-                const prefer = ['deepseek-v4-flash','glm-5.3-flash','deepseek-v4.1-flash','auto','default'];
-                return prefer.find(id => usable.some(m => m.id === id)) || (usable.find(m => /flash|lite|mini/i.test(m.id)) || usable[0]).id;
-            }).catch(error => {selected = null;throw error;});
-        }
-        return selected;
-    }
-    const fallback = (questions,{signal} = {}) => retryAnswers(async () => {
-        const deadline = AbortSignal.any([AbortSignal.timeout(120_000),...(signal ? [signal] : [])]);
-        const model = await pickModel(deadline);
-        const iterator = cloud.llm.chat.completions.create({model,messages:[{role:'system',content:SYSTEM_PROMPT},{role:'user',content:JSON.stringify(questions)}],stream:true,signal:deadline})[Symbol.asyncIterator]();
-        let content = '';
-        try {
-            while (true) {
-                const {done,value} = await abortable(iterator.next(),deadline);
-                if (done) break;
-                const delta = value.choices?.[0]?.delta?.content;
-                if (delta) content += delta;
-                if (Buffer.byteLength(content) > 1_000_000) throw new Error('云模型返回内容过大');
-            }
-        } finally {
-            // Do not await a stalled generator's return after its network request was aborted.
-            Promise.resolve(iterator.return?.()).catch(() => {});
-        }
-        return content;
-    },questions,{signal});
-    const requestAnswers = createAnswerResolver({jevCall,fallback,confidenceFloor:jev.confidenceFloor ?? 0.6,noulProbabilityFloor:jev.noulProbabilityFloor ?? 0.6});
-    const local = createLocalService({consoleSource:readFileSync(directory + 'deepseek-console/xuexitong-console.js','utf8'),
+    const diagnostics=createAnswerDiagnostics({directory,enabled:env.WB_DIAGNOSTICS==='1'});
+    const fallback=createCloudAnswerer({cloud,model:env.WB_MODEL,diagnostics});
+    const requestAnswers = createAnswerResolver({jevCall,fallback,confidenceFloor:jev.confidenceFloor ?? 0.6,noulProbabilityFloor:jev.noulProbabilityFloor ?? 0.6,
+        onDecision:event=>diagnostics.record({...event,model:jev.model||'jev-latest'})});
+    const local = createLocalService({consoleSource:(diagnostics.enabled?'window.__WB_ANSWER_DIAGNOSTICS__ = true;\n':'')+readFileSync(directory + 'deepseek-console/xuexitong-console.js','utf8'),
         v3Source:readFileSync(directory + 'xuexitong_v3.user.js','utf8'),requestAnswers,mode:'workbuddy'});
     await new Promise((resolve,reject) => {local.server.once('error',reject);local.server.listen(port,'127.0.0.1',resolve);});
     local.server.on('close',() => {dispatcher?.close().catch(() => {});});

@@ -1,6 +1,8 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {document,el,quiz,harness} from './dom.mjs';
+import {webcrypto} from 'node:crypto';
+import {questionHash} from '../wb-answer-diagnostics.mjs';
 
 function answerButton(h) {
   const panel=h.doc.querySelector('#xuexitong-independent-status');
@@ -128,6 +130,36 @@ function examFixture({type='单选题',stored=['B','D','C','A'],start=0,storage=
   h.win.sessionStorage={getItem:k=>storage.get(k)??null,setItem:(k,v)=>storage.set(k,v),removeItem:k=>storage.delete(k)};
   return {...h,box,title,input,choices,nextButton,submit,storage};
 }
+for(const media of ['img','math'])test(`chapter and single-question adapters stop on unrepresented ${media} content`,async()=>{
+  let calls=0;const doc=document(),q=quiz(doc);q.box.querySelector('.Zy_TItle').append(el(media,{src:'synthetic-image'}));
+  const h=harness({doc,fetch:async()=>{calls++;return{ok:true,status:200,json:async()=>({answers:[{id:1,letters:['A']}]})};}});h.inject();await h.advance(20);
+  assert.equal(calls,0);assert.equal(q.submit.clicks,0);assert.equal(h.win.app.status,'stopped');
+  const exam=examFixture({fetch:async()=>{calls++;throw Error('must not infer from missing media');}});exam.title.append(el(media,{src:'synthetic-image'}));exam.inject();answerButton(exam).click();await exam.advance(15);
+  assert.equal(calls,0);assert.equal(exam.nextButton.clicks,0);assert.equal(exam.win.app.status,'stopped');
+});
+test('both adapters stop on private glyphs instead of asking the model to reconstruct them',async()=>{
+  let calls=0;const doc=document(),q=quiz(doc,{title:'1. （单选题）损坏\uE001题干'});const h=harness({doc,fetch:async()=>{calls++;throw Error('must not infer');}});h.inject();await h.advance(20);assert.equal(calls,0);assert.equal(q.submit.clicks,0);
+  const exam=examFixture({fetch:async()=>{calls++;throw Error('must not infer');}});exam.title.textContent='1. (单选题) 损坏\uFFFD题干';exam.inject();answerButton(exam).click();await exam.advance(15);assert.equal(calls,0);assert.equal(exam.nextButton.clicks,0);
+});
+test('422 incomplete-input or unreliable-answer responses do not retry in either adapter',async()=>{
+  let calls=0;const reply=async()=>{calls++;return {ok:false,status:422,json:async()=>({error:'请手动确认'})};};
+  const doc=document(),q=quiz(doc),h=harness({doc,fetch:reply});h.inject();await h.advance(40);assert.equal(calls,1);assert.equal(q.submit.clicks,0);
+  const exam=examFixture({fetch:reply});exam.inject();answerButton(exam).click();await exam.advance(30);assert.equal(calls,2);assert.equal(exam.nextButton.clicks,0);
+});
+for(const mode of ['chapter','exam'])test(`${mode} compiled adapter correlates response, hashed question and verified multi-selection`,async()=>{
+  let wire;const id='12345678-1234-1234-1234-123456789abc';
+  const fetch=async(url,opts)=>{wire=JSON.parse(opts.body).questions[0];return {ok:true,status:200,headers:{get:name=>name==='X-Xuexitong-Request-Id'?id:null},json:async()=>({answers:[{id:1,letters:['A','C']}]})};};
+  const doc=document(),q=quiz(doc,{type:'多选题',title:'1. （多选题）PRIVATE-TEST-STEM',labels:['A. PRIVATE-ONE','B. PRIVATE-TWO','C. PRIVATE-THREE']});finish(doc,q);
+  q.controls.forEach((control,i)=>{control.value=['D','B','A'][i];});
+  const h=mode==='exam'?examFixture({type:'多选题',stored:['D','A','B','C'],next:false,fetch}):harness({doc,fetch});
+  h.win.__WB_ANSWER_DIAGNOSTICS__=true;h.win.crypto=webcrypto;h.win.TextEncoder=TextEncoder;
+  h.inject();answerButton(h).click();await h.advance(25);
+  let match;for(let i=0;i<30;i++){match=h.logs.find(entry=>entry[0]==='[学习助手][答题核对]');if(match)break;await new Promise(resolve=>setTimeout(resolve,5));}
+  assert.ok(match,'compiled adapter must invoke diagnostics after verified application');
+  const event=JSON.parse(match[1]);assert.equal(event.requestId,id);assert.equal(event.questionHash,questionHash(wire));
+  assert.deepEqual(event.options.map(o=>o.observedSelected),mode==='exam'?[true,false,true,false]:[true,false,true]);
+  assert.equal(event.options[0].storedValue,'D');assert.ok(!match[1].includes('PRIVATE-'));assert.ok(!match[1].includes('合成题干'));
+});
 test('manual exam engine is idle until the answer button is clicked and maps shuffled values',async()=>{
   let calls=0;const h=examFixture({fetch:async()=>{calls++;return {ok:true,status:200,json:async()=>({answers:[{id:1,letters:['A']}]})};}});
   const app=h.inject();assert.ok(app,'exam page must connect the answer engine');await h.advance(10);assert.equal(calls,0);

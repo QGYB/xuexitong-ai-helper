@@ -1,6 +1,6 @@
 // Shared local protocol and answer policy. Importing this module starts no service.
 import {createServer} from 'node:http';
-import {randomBytes} from 'node:crypto';
+import {randomBytes,randomUUID} from 'node:crypto';
 import {readFileSync,existsSync} from 'node:fs';
 
 export const SERVICE = 'xuexitong-ai-helper';
@@ -63,12 +63,13 @@ export function validateAnswers(questions, answers) {
 
 function probability(value) { return typeof value === 'number' && Number.isFinite(value) && value >= 0 && value <= 1; }
 
-export function createAnswerResolver({jevCall, fallback, confidenceFloor = 0.6, noulProbabilityFloor = 0.6}) {
+export function createAnswerResolver({jevCall, fallback, confidenceFloor = 0.6, noulProbabilityFloor = 0.6,onDecision}) {
     if (!probability(confidenceFloor)) throw new Error('jev.confidenceFloor 必须在 0 到 1 之间');
     if (!probability(noulProbabilityFloor) || noulProbabilityFloor <= 0.5) throw new Error('jev.noulProbabilityFloor 必须大于 0.5 且不大于 1');
-    return async (questions, {signal} = {}) => {
+    return async (questions, {signal,requestId} = {}) => {
         const accepted = [], remaining = [];
         for (const q of questions) {
+            const begin=performance.now();
             signal?.throwIfAborted();
             if (!jevCall) { remaining.push(q); continue; }
             try {
@@ -95,6 +96,7 @@ export function createAnswerResolver({jevCall, fallback, confidenceFloor = 0.6, 
                     letters = [a.choice];
                 }
                 accepted.push({id:q.id, letters});
+                try { onDecision?.({question:q,requestId,route:'jev',letters,durationMs:performance.now()-begin,status:'success'}); } catch { /* Diagnostics are optional. */ }
             } catch (error) {
                 signal?.throwIfAborted();
                 remaining.push(q);
@@ -103,7 +105,7 @@ export function createAnswerResolver({jevCall, fallback, confidenceFloor = 0.6, 
         if (remaining.length) {
             if (!fallback) throw new Error(`未配置兜底 API：第 ${remaining.map(q => q.id).join('、')} 题需要人工处理`);
             signal?.throwIfAborted();
-            accepted.push(...validateAnswers(remaining, await fallback(remaining, {signal})));
+            accepted.push(...validateAnswers(remaining, await fallback(remaining, {signal,requestId})));
         }
         return validateAnswers(questions, accepted);
     };
@@ -158,7 +160,7 @@ export function createLocalService({consoleSource, v3Source = '', requestAnswers
         res.writeHead(status, {
             'Content-Type':'application/json; charset=utf-8', 'Cache-Control':'no-store',
             'X-Content-Type-Options':'nosniff', 'Content-Security-Policy':"default-src 'none'",
-            ...(origin ? {'Access-Control-Allow-Origin':origin, Vary:'Origin'} : {}),
+            ...(origin ? {'Access-Control-Allow-Origin':origin,'Access-Control-Expose-Headers':'X-Xuexitong-Request-Id', Vary:'Origin'} : {}),
         });
         res.end(JSON.stringify(data));
     };
@@ -185,6 +187,7 @@ export function createLocalService({consoleSource, v3Source = '', requestAnswers
         if (busy) { send(res,429,{error:'上一批题目仍在处理，请稍后重试'},origin); return; }
         if (!/^application\/json(?:\s*;|$)/i.test(req.headers['content-type'] || '')) { send(res,415,{error:'仅接受 JSON'},origin); return; }
         busy = true;
+        const requestId=randomUUID();res.setHeader('X-Xuexitong-Request-Id',requestId);
         const client = new AbortController();
         const signal = AbortSignal.any([client.signal, AbortSignal.timeout(requestTimeoutMs)]);
         const disconnected = () => { if (!res.writableEnded) client.abort(new Error('客户端已断开')); };
@@ -192,7 +195,7 @@ export function createLocalService({consoleSource, v3Source = '', requestAnswers
         try {
             const data = await abortable(readJsonBody(req), signal);
             if (!validQuestions(data?.questions)) { const error = new Error('题目格式不正确'); error.status = 400; throw error; }
-            const answers = validateAnswers(data.questions, await abortable(requestAnswers(data.questions,{signal}),signal));
+            const answers = validateAnswers(data.questions, await abortable(requestAnswers(data.questions,{signal,requestId}),signal));
             send(res,200,{answers},origin);
         } catch (error) {
             const code = error?.code || error?.error?.code;
