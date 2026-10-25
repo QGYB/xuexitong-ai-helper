@@ -2,6 +2,81 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { document, el, quiz, harness } from './dom.mjs';
 
+function emptyChapterFixture({mode='console',top=false,badge='0',nextId='prevNextFocusNext'}={}) {
+  const doc=document(),tree=el('div',{id:'coursetree'}),active=el('div',{class:'posCatalog_select posCatalog_active','data-chapterid':'1'});
+  const count=el('span',{class:'catalog_points'},badge);active.append(el('span',{class:'posCatalog_name'},'当前章节'),count);tree.append(active);doc.body.append(tree);
+  const frame=top?null:el('iframe'),content=top?doc:document('https://mooc1.chaoxing.com/knowledge/cards?chapterId=1');
+  const heading=el('h2',{},'章节概述'),marker=el('p',{class:'empty-content'},'暂无内容');content.body.append(heading,marker);
+  if(frame){frame.contentDocument=content;doc.body.append(frame);}
+  const next=el('button',nextId?{id:nextId}:{},'下一节');doc.body.append(next);
+  const h=harness({doc,mode,config:{emptyChapterSettleMs:15}});
+  return {...h,frame,content,heading,marker,next,active,count};
+}
+for(const mode of ['console','v3'])test(`${mode} advances a settled explicit empty chapter once and resumes a fresh video`,async()=>{
+  const h=emptyChapterFixture({mode});let plays=0;
+  h.next.onClick=()=>{h.marker.remove();const video=el('video');video.paused=true;video.play=async()=>{plays++;video.paused=false;};h.content.body.append(video);};
+  h.inject();await h.advance(15);assert.equal(h.next.clicks,0,'wait before treating empty as loaded');await h.advance(20);
+  assert.equal(h.next.clicks,1);assert.equal(plays,1);
+});
+test('top-level empty content can use a unique next-section button without a legacy element ID',async()=>{
+  const h=emptyChapterFixture({top:true,nextId:null});h.inject();await h.advance(30);assert.equal(h.next.clicks,1);
+});
+test('zero task count alone does not establish an empty chapter',async()=>{
+  const h=emptyChapterFixture();h.marker.remove();h.inject();await h.advance(90);assert.equal(h.next.clicks,0);assert.equal(h.win.app.status,'stopped');
+});
+for(const kind of ['positive-count','unknown-count','hidden-marker','loading-document','loading-overlay','load-error','unreadable-frame','pending-frame','unsupported-media','sidebar-marker'])test(`empty detection does not advance ${kind}`,async()=>{
+  const h=emptyChapterFixture();
+  if(kind==='positive-count')h.count.textContent='2';
+  if(kind==='unknown-count')h.count.textContent='--';
+  if(kind==='hidden-marker')h.marker.hidden=true;
+  if(kind==='loading-document')h.content.readyState='loading';
+  if(kind==='loading-overlay')h.content.body.append(el('div',{'aria-busy':'true'},'正在加载'));
+  if(kind==='load-error')h.content.body.append(el('p',{},'内容加载失败，请刷新重试'));
+  if(kind==='unreadable-frame')h.content.body.append(el('iframe'));
+  if(kind==='pending-frame'){const frame=el('iframe');frame.contentDocument=document('about:blank');h.content.body.append(frame);}
+  if(kind==='unsupported-media')h.content.body.append(el('audio'));
+  if(kind==='sidebar-marker'){h.marker.remove();const aside=el('aside');aside.append(h.marker);h.content.body.append(aside);}
+  h.inject();await h.advance(90);assert.equal(h.next.clicks,0);
+});
+test('a video arriving during the empty confirmation period is played instead of skipped',async()=>{
+  const h=emptyChapterFixture();let plays=0;h.inject();await h.advance(10);
+  h.marker.remove();const video=el('video');video.paused=true;video.play=async()=>{plays++;video.paused=false;};h.content.body.append(video);await h.advance(25);
+  assert.equal(plays,1);assert.equal(h.next.clicks,0);
+});
+test('empty confirmation is reset when the current chapter changes',async()=>{
+  const h=emptyChapterFixture();h.inject();await h.advance(10);
+  h.win.location.search='?courseId=1&chapterId=2';h.active.setAttribute('data-chapterid','2');h.content.URL='https://mooc1.chaoxing.com/knowledge/cards?chapterId=2';
+  await h.advance(10);assert.equal(h.next.clicks,0);await h.advance(15);assert.equal(h.next.clicks,1);
+});
+test('consecutive empty chapters are fresh navigation content before a following video',async()=>{
+  const h=emptyChapterFixture();let plays=0;
+  h.next.onClick=()=>{
+    if(h.next.clicks===1){const doc=document('https://mooc1.chaoxing.com/knowledge/cards?chapterId=2');doc.body.append(el('h2',{},'另一个概述'),el('p',{},'暂无内容'));h.frame.contentDocument=doc;h.active.setAttribute('data-chapterid','2');h.win.location.search='?courseId=1&chapterId=2';}
+    else {const doc=document('https://mooc1.chaoxing.com/knowledge/cards?chapterId=3'),video=el('video');video.paused=true;video.play=async()=>{plays++;video.paused=false;};doc.body.append(video);h.frame.contentDocument=doc;}
+  };
+  h.inject();await h.advance(60);assert.equal(h.next.clicks,2);assert.equal(plays,1);
+});
+test('changing only the URL cannot make an old empty marker count as a fresh section',async()=>{
+  const h=emptyChapterFixture();h.next.onClick=()=>{h.win.location.search='?courseId=1&chapterId=2';};
+  const app=h.inject();await h.advance(90);assert.equal(h.next.clicks,1);assert.equal(app.status,'stopped');
+});
+test('a no-op next button cannot repeatedly advance the same empty section',async()=>{
+  const h=emptyChapterFixture();const app=h.inject();await h.advance(90);assert.equal(h.next.clicks,1);assert.equal(app.status,'stopped');
+});
+test('reused empty markup requires a new active catalog row and heading to confirm navigation',async()=>{
+  const h=emptyChapterFixture(),second=el('div',{class:'posCatalog_select','data-chapterid':'2'});second.append(el('span',{class:'catalog_points'},'0'));h.active.parentElement.append(second);
+  h.next.onClick=()=>{if(h.next.clicks===1){h.active.setAttribute('class','posCatalog_select');second.setAttribute('class','posCatalog_select posCatalog_active');h.heading.textContent='下一章概述';h.win.location.search='?courseId=1&chapterId=2';}};
+  h.inject();await h.advance(55);assert.equal(h.next.clicks,2,JSON.stringify(h.logs));
+});
+test('empty markup replaces a finished quiz as fresh content before proceeding',async()=>{
+  const h=emptyChapterFixture();h.marker.remove();const q=quiz(h.content,{complete:true});q.controls.forEach(c=>{c.disabled=true;});
+  h.next.onClick=()=>{const doc=document(`https://mooc1.chaoxing.com/knowledge/cards?chapterId=${h.next.clicks+1}`);doc.body.append(el('p',{},'暂无内容'));h.frame.contentDocument=doc;h.active.setAttribute('data-chapterid',String(h.next.clicks+1));h.win.location.search=`?courseId=1&chapterId=${h.next.clicks+1}`;};
+  h.inject();await h.advance(30);assert.ok(h.next.clicks>=2,'finished quiz and following empty section both advance');
+});
+test('a hidden empty marker in the outline cannot establish empty course content',async()=>{
+  const h=emptyChapterFixture();h.marker.remove();h.active.append(el('p',{},'暂无内容'));h.inject();await h.advance(90);assert.equal(h.next.clicks,0);
+});
+
 test('route and runner guards have no DOM or timer effects', () => {
   for (const url of ['http://mooc1.chaoxing.com/mycourse/studentstudy', 'https://evilchaoxing.com/mycourse/studentstudy', 'https://mooc1.chaoxing.com/wrong']) {
     const h = harness({ url }); h.inject(); assert.equal(h.timers.size, 0); assert.equal(h.doc.body.children.length, 0);

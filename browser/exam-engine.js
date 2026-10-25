@@ -156,15 +156,16 @@ function createManualExamController(token) {
     return api;
   }
   function toggle(){return state.active?stop():start();}
+  function restart(){if(state.destroyed||host.app!==api)return api;return createManualExamController(token);}
   const onHide=()=>{
     state.destroyed=true;state.active=false;state.generation++;
     host.clearTimeout(state.timer);host.clearTimeout(state.requestTimer);state.controller?.abort();panel.release(toggle);
   };
-  const api={get status(){return state.status;},get message(){return state.message;},answerCurrentQuiz:toggle,run:start,stop,
+  const api={get status(){return state.status;},get message(){return state.message;},answerCurrentQuiz:toggle,run:start,stop,restart,
     inspectQuiz(){try{return [snapshot().wire];}catch(error){return {error:error.message};}},
     destroy(){stop('答题控制器已替换');state.destroyed=true;host.removeEventListener('pagehide',onHide);panel.release(toggle);}};
   host.__WB_DRIVER='console';host.__xuexitongConsoleDeepSeek=api;host.app=api;
-  panel.bind(toggle,{mode:'exam',onModeChange:()=>stop('已切换答题模式')});
+  panel.bind(toggle,{mode:'exam',onModeChange:()=>stop('已切换答题模式'),onRestart:restart,canRestart:()=>!state.destroyed});
   host.addEventListener('pagehide',onHide);
   message('考试答题引擎已接入，点击一键开始做题；最终交卷需手动确认');
   let resume;

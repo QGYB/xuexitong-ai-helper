@@ -22,7 +22,7 @@ export class Element {
       const attrs = [...s.matchAll(/\[([^=\]]+)(?:=["']?([^\]"']+)["']?)?\]/g)];
       if (attrs.some(([, key, val]) => this.getAttribute(key) === null || (val !== undefined && this.getAttribute(key) !== val))) return false;
       const base = s.replace(/\[[^\]]+\]/g, '');
-      const tag = base.match(/^[a-zA-Z]+/)?.[0];
+      const tag = base.match(/^[a-zA-Z][a-zA-Z0-9-]*/)?.[0];
       if (tag && tag.toUpperCase() !== this.tagName) return false;
       const id = base.match(/#([\w-]+)/)?.[1]; if (id && this.id !== id) return false;
       const classes = [...base.matchAll(/\.([\w-]+)/g)].map(m => m[1]);

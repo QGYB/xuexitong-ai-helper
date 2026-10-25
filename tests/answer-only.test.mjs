@@ -12,6 +12,37 @@ function answerButton(h) {
 }
 const finish=(doc,q)=>{q.submit.onClick=()=>doc.body.append(el('div',{class:'achievement'},'本次成绩100分'));};
 
+function restartButton(h){const button=h.doc.querySelector('#xuexitong-restart-current');assert.ok(button,'persistent status must provide restart');return button;}
+test('restart recreates a stopped course controller while preserving the document and course location',async()=>{
+  const h=harness();const first=h.inject(),url=h.win.location.href;first.stop('测试停止');const button=restartButton(h);
+  assert.equal(button.disabled,false);button.click();await h.flush();assert.notEqual(h.win.app,first);assert.equal(first.status,'stopped');assert.equal(h.win.location.href,url);
+  assert.equal(h.doc,h.win.document);assert.equal(h.win.app.status,'running');assert.equal(h.doc.querySelectorAll('#xuexitong-independent-status').length,1);
+});
+test('restarting cancels an in-flight answer and ignores its late reply',async()=>{
+  const doc=document(),q=quiz(doc);finish(doc,q);let late,signal,calls=0;
+  const h=harness({doc,fetch:async(url,options)=>{calls++;if(calls===1){signal=options.signal;return new Promise(resolve=>{late=resolve;});}return {ok:true,status:200,json:async()=>({answers:[{id:1,letters:['B']}]})};}});
+  const first=h.inject();await h.advance(5);restartButton(h).click();await h.advance(25);assert.equal(signal.aborted,true);assert.notEqual(h.win.app,first);
+  late({ok:true,status:200,json:async()=>({answers:[{id:1,letters:['A']}]})});await h.flush();assert.equal(q.submit.clicks,1);assert.deepEqual(q.controls.map(c=>c.checked),[false,true]);
+});
+test('restart is disabled while a quiz submission is awaiting confirmation',async()=>{
+  const doc=document(),q=quiz(doc),h=harness({doc});h.inject();await h.advance(15);assert.equal(q.submit.clicks,1);
+  const current=h.win.app,button=restartButton(h);assert.equal(button.disabled,true);button.click();assert.equal(h.win.app,current);assert.equal(q.submit.clicks,1);
+});
+test('pagehide and disposed status controls cannot restart a departed page',async()=>{
+  const h=harness(),app=h.inject(),button=restartButton(h);h.pagehide();button.click();await h.flush();assert.equal(h.win.app,app);assert.equal(button.disabled,true);assert.equal(h.timers.size,0);
+});
+test('rapid repeat clicks restart only once and a mode mismatch disables restart',async()=>{
+  const h=harness();const old=h.inject();await h.flush();const button=restartButton(h);button.click();await h.flush();const current=h.win.app;
+  button.click();await h.flush();assert.notEqual(current,old);assert.equal(h.win.app,current);
+  h.doc.querySelector('#xuexitong-answer-mode').click();assert.equal(button.disabled,true);button.click();assert.equal(h.win.app,current);
+});
+test('restart button keeps answer-only flow from advancing after completion',async()=>{
+  const doc=document(),q=quiz(doc),next=el('button',{id:'prevNextFocusNext'},'下一节');doc.body.append(next);finish(doc,q);
+  let first=true;const h=harness({doc,fetch:async()=>first?(first=false,{ok:false,status:401}):({ok:true,status:200,json:async()=>({answers:[{id:1,letters:['A']}]})})});
+  h.inject();answerButton(h).click();await h.advance(15);assert.equal(h.win.app.status,'stopped');restartButton(h).click();await h.advance(25);
+  assert.equal(q.submit.clicks,1);assert.equal(next.clicks,0);assert.equal(h.win.app.status,'stopped');
+});
+
 test('answer button remains to the left of live status text after messages change', async()=>{
   const h=harness();h.inject();const button=answerButton(h),panel=button.parentElement;
   assert.equal(button.textContent,'一键开始做题');assert.equal(panel.children[0],button);
@@ -130,6 +161,11 @@ function examFixture({type='单选题',stored=['B','D','C','A'],start=0,storage=
   h.win.sessionStorage={getItem:k=>storage.get(k)??null,setItem:(k,v)=>storage.set(k,v),removeItem:k=>storage.delete(k)};
   return {...h,box,title,input,choices,nextButton,submit,storage};
 }
+test('restart on a single-question page cancels work and returns to manual idle without changing choices',async()=>{
+  let calls=0,signal;const h=examFixture({fetch:async(url,options)=>{calls++;signal=options.signal;return new Promise(()=>{});}});
+  const first=h.inject();answerButton(h).click();await h.advance(5);restartButton(h).click();await h.flush();
+  assert.equal(signal.aborted,true);assert.notEqual(h.win.app,first);assert.equal(h.win.app.status,'idle');assert.equal(h.input.value,'');assert.equal(h.nextButton.clicks,0);assert.equal(calls,1);
+});
 for(const media of ['img','math'])test(`chapter and single-question adapters stop on unrepresented ${media} content`,async()=>{
   let calls=0;const doc=document(),q=quiz(doc);q.box.querySelector('.Zy_TItle').append(el(media,{src:'synthetic-image'}));
   const h=harness({doc,fetch:async()=>{calls++;return{ok:true,status:200,json:async()=>({answers:[{id:1,letters:['A']}]})};}});h.inject();await h.advance(20);

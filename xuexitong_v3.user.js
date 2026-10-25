@@ -17,19 +17,33 @@ function installStatusPanel({withAnswer = true} = {}) {
   const host = window;
   let doc = host.document;
   if (host !== host.top) return null;
-  if (host.__WBStatusPanel?.version === 3 && host.__WBStatusPanel.status.ownerDocument === doc) { host.__WBStatusPanel.ensure(); return host.__WBStatusPanel; }
+  if (host.__WBStatusPanel?.version === 4 && host.__WBStatusPanel.status.ownerDocument === doc) { host.__WBStatusPanel.ensure(); return host.__WBStatusPanel; }
   host.__WBStatusPanel?.dispose?.();
   const status = doc.createElement('div');
   status.id = 'xuexitong-independent-status';
   status.setAttribute('role', 'group'); status.setAttribute('aria-label', '学习助手');
-  status.style.cssText = 'position:fixed!important;bottom:8px!important;right:8px!important;z-index:2147483647!important;display:flex!important;visibility:visible!important;opacity:1!important;align-items:center;gap:8px;background:#fff;color:#222;border:1px solid #777;border-radius:6px;padding:8px;max-width:calc(100vw - 16px);box-sizing:border-box;font:13px sans-serif';
+  status.style.cssText = 'position:fixed!important;bottom:8px!important;right:8px!important;z-index:2147483647!important;display:flex!important;flex-wrap:wrap;visibility:visible!important;opacity:1!important;align-items:center;gap:8px;background:#fff;color:#222;border:1px solid #777;border-radius:6px;padding:8px;max-width:calc(100vw - 16px);box-sizing:border-box;font:13px sans-serif';
   const message = doc.createElement('span');
   message.setAttribute('role', 'status'); message.setAttribute('aria-live', 'polite');
   message.style.cssText = 'min-width:0;max-width:360px;overflow-wrap:anywhere;';
   message.textContent = '学习助手已就绪，进入章节学习页后可答题';
   const button = withAnswer ? doc.createElement('button') : null;
   const detectedMode = /^\/exam-ans\//.test(host.location.pathname) ? 'exam' : 'course';
-  let owner = null, observer, selectedMode = detectedMode, boundMode = null, onModeChange = null;
+  let owner = null, observer, selectedMode = detectedMode, boundMode = null, onModeChange = null, onRestart = null, canRestart = null, restartAt = -Infinity;
+  const restartButton = doc.createElement('button');
+  restartButton.id = 'xuexitong-restart-current'; restartButton.type = 'button'; restartButton.textContent = '重新启动'; restartButton.disabled = true;
+  restartButton.style.cssText = 'flex-shrink:0;white-space:nowrap;border:1px solid #777;border-radius:4px;background:#f5f5f5;color:#222;padding:6px 10px;font:inherit;cursor:pointer;';
+  function restartAllowed() {
+    try { return Boolean(owner && onRestart && selectedMode === boundMode && (!canRestart || canRestart())); } catch { return false; }
+  }
+  function syncRestart() {
+    restartButton.disabled = !restartAllowed(); restartButton.style.opacity = restartButton.disabled ? '0.6' : '1';
+    restartButton.title = restartButton.disabled ? '当前页面未就绪、模式不符或正在确认测验提交，暂不能重启' : '重新启动当前页的学习助手，保留当前课程位置、登录和答题方式';
+  }
+  restartButton.onclick = () => {
+    if (!restartAllowed() || Date.now() - restartAt < 500) return;
+    restartAt = Date.now(); onRestart(); syncRestart();
+  };
   if (button) {
     button.id = 'xuexitong-answer-current'; button.type = 'button'; button.textContent = '一键开始做题';
     button.title = '进入章节学习页后，点击处理当前测验，完成后停留';
@@ -41,6 +55,7 @@ function installStatusPanel({withAnswer = true} = {}) {
   function syncMode() {
     if (modeButton) modeButton.textContent = `模式：${modeName(selectedMode)}`;
     if (button && (!owner || selectedMode !== boundMode)) button.disabled = true;
+    syncRestart();
   }
   if (modeButton) {
     modeButton.id = 'xuexitong-answer-mode'; modeButton.type = 'button';
@@ -55,36 +70,39 @@ function installStatusPanel({withAnswer = true} = {}) {
     };
     status.append(modeButton); syncMode();
   }
-  status.append(message);
+  status.append(restartButton,message);
   function ensure() {
     // Popup navigation may reuse its initial about:blank Window with a new Document.
     if (host.document !== doc) {
-      doc = host.document; owner = null; boundMode = null; onModeChange = null;
+      doc = host.document; owner = null; boundMode = null; onModeChange = null; onRestart = null; canRestart = null;
       observer?.disconnect(); observer?.observe(doc, {childList:true, subtree:true});
       if (button) { button.onclick = null; button.disabled = true; button.style.opacity = '0.6'; }
       message.textContent = '学习助手已就绪，进入章节学习页后可答题';
+      syncRestart();
     }
     const root = doc.documentElement || doc.body;
     if (root && !doc.contains(status)) root.append(status);
   }
   const panel = {
-    version:3, status, message, button, modeButton, ensure, get selectedMode() { return selectedMode; },
+    version:4, status, message, button, modeButton, restartButton, ensure, get selectedMode() { return selectedMode; },
     dispose() {
+      owner = null; onRestart = null; canRestart = null; restartButton.onclick = null; restartButton.disabled = true;
       observer?.disconnect();
       host.removeEventListener?.('DOMContentLoaded', ensure); host.removeEventListener?.('pageshow', ensure);
       status.remove();
     },
-    bind(handler, options = {}) { owner = handler; boundMode = options.mode || 'course'; onModeChange = options.onModeChange || null; if (button) button.onclick = handler; syncMode(); },
+    bind(handler, options = {}) { owner = handler; boundMode = options.mode || 'course'; onModeChange = options.onModeChange || null; onRestart = options.onRestart || null; canRestart = options.canRestart || null; if (button) button.onclick = handler; syncMode(); },
     update(handler, text, disabled) {
       if (owner !== handler) return;
       const mismatch = selectedMode !== boundMode;
       message.textContent = mismatch ? `已选择${modeName(selectedMode)}；当前页面不属于此模式，请切换模式或打开对应页面` : text;
       if (button) { button.disabled = disabled || mismatch; button.style.opacity = button.disabled ? '0.6' : '1'; }
+      syncRestart();
       ensure();
     },
     release(handler) {
       if (owner !== handler) return;
-      owner = null; boundMode = null; onModeChange = null;
+      owner = null; boundMode = null; onModeChange = null; onRestart = null; canRestart = null; syncRestart();
       if (button) { button.onclick = null; button.disabled = true; button.style.opacity = '0.6'; }
     }
   };
@@ -136,7 +154,8 @@ function createCourseController(mode, token, initialFlow = 'auto') {
     guardNoProgressMs: 7000, guardResumeCooldownMs: 1500,
     tickMs: 1000, playRetryLimit: 10, playbackRate: mode === 'v3' ? 1.5 : null,
     requestTimeoutMs: 900000, transitionTimeoutMs: 45000, quizLoadTimeoutMs: 120000,
-    quizWarnMs: 600000, quizStopMs: 900000, quizRetryLimit: 3, quizRetryDelayMs: 3000
+    quizWarnMs: 600000, quizStopMs: 900000, quizRetryLimit: 3, quizRetryDelayMs: 3000,
+    emptyChapterSettleMs: 5000
   }, host.__XUEXITONG_CONFIG__ || {});
   if (configs.quizCompletionWarningMs !== undefined) configs.quizWarnMs = configs.quizCompletionWarningMs;
   if (configs.quizCompletionTimeoutMs !== undefined) configs.quizStopMs = configs.quizCompletionTimeoutMs;
@@ -418,16 +437,54 @@ function createCourseController(mode, token, initialFlow = 'auto') {
     }
     return null;
   }
+  function emptyChapter(entries) {
+    // Empty is an explicit page state, never inferred just from a missing player.
+    const ignored = '#xuexitong-independent-status,#coursetree,.posCatalog_select,.chapter_item,[data-task-id],nav,aside,[role="navigation"],.discussion,.discuss,.notes,.noteList';
+    for (const entry of entries) {
+      if (entry.doc.readyState !== 'complete') return null;
+      for (const frame of all(entry.doc, 'iframe,frame').filter(visible)) {
+        const child = entries.find(e => e.frame === frame);
+        if (!child || !child.doc.URL || /^about:blank(?:[?#]|$)/.test(child.doc.URL)) return null;
+      }
+      if (all(entry.doc, `video,audio,object,embed,canvas,${questionSelector}`).some(visible)) return null;
+      if (all(entry.doc, '[aria-busy="true"],[data-loading="true"],.loading,.loading-mask,.el-loading-mask').some(visible)) return null;
+      if (all(entry.doc, 'p,span,div').some(node => visible(node) && !node.children.length && !node.closest(ignored) && /加载失败|加载错误|网络异常|正在加载|加载中|请先登录|访问受限|权限不足/.test(textOf(node)))) return null;
+    }
+    if (currentTab(entries) || currentTab(entries, 'video')) return null;
+    const active = [...new Set(all(host.document, '.posCatalog_active,[aria-current="true"]').filter(node => visible(node) &&
+      (node.matches('.posCatalog_active') || node.closest('#coursetree,.chapter_item,[data-task-id]')))
+      .map(node => node.closest('.posCatalog_select,.chapter_item,[data-task-id]') || node))];
+    if (active.length > 1) return null;
+    const row = active[0] || null;
+    let counts = row ? all(row, '.catalog_points,[data-task-count],.jobCount,.taskCount').filter(visible) : [];
+    if (row && !counts.length) counts = all(row, 'span,em,i,b').filter(node => visible(node) && !node.children.length && /^\d+$/.test(textOf(node)));
+    const values = counts.map(node => node.getAttribute('data-task-count') ?? textOf(node));
+    if (values.some(value => !/^0$/.test(value.trim()))) return null;
+    for (const entry of [...entries].reverse()) {
+      const marker = all(entry.doc, 'div,p,span').reverse().find(node => visible(node) && !node.closest(ignored) && /^(?:暂无内容|本章节暂无内容|暂无学习内容)$/.test(textOf(node)));
+      if (!marker) continue;
+      return {doc:entry.doc,marker,task:`${taskKey(host.document)}|${entry.task}`,active:row,counts:values.join('|'),
+        heading:all(entry.doc, 'h1,h2,h3').filter(node => visible(node) && !node.closest(ignored)).map(textOf).join('|')};
+    }
+    return null;
+  }
+  function sameEmpty(before, after) {
+    return before && after && before.doc === after.doc && before.marker === after.marker && before.task === after.task && before.active === after.active && before.heading === after.heading && before.counts === after.counts;
+  }
   function content(entries) {
+    const empty = emptyChapter(entries);
     return entries.map(e => ({ doc: e.doc, slot: e.slot, task: e.task,
+      empty:empty?.doc === e.doc ? empty : null,
       video: all(e.doc, 'video').filter(visible),
       questions: all(e.doc, questionSelector).filter(visible).map(q => ({ node: q, text: textOf(q) })) }));
   }
   function fresh(before, after) {
     return after.some(now => {
       const old = before.find(e => e.slot === now.slot);
-      if (!old) return now.video.length > 0 || now.questions.length > 0;
-      if (now.doc !== old.doc) return now.video.length > 0 || now.questions.length > 0 || /work|quiz/i.test(now.doc.URL || '');
+      if (!old) return now.video.length > 0 || now.questions.length > 0 || Boolean(now.empty);
+      if (now.doc !== old.doc) return now.video.length > 0 || now.questions.length > 0 || Boolean(now.empty) || /work|quiz/i.test(now.doc.URL || '');
+      if (now.empty && (!old.empty || now.empty.marker !== old.empty.marker ||
+          (now.empty.task !== old.empty.task && now.empty.active !== old.empty.active && now.empty.heading !== old.empty.heading))) return true;
       if (now.video.some(v => !old.video.includes(v))) return true;
       return now.questions.some(q => !old.questions.some(prior => prior.node === q.node && prior.text === q.text));
     });
@@ -442,6 +499,9 @@ function createCourseController(mode, token, initialFlow = 'auto') {
     for (const entry of entries) {
       const button = all(entry.doc, '#prevNextFocusNext,#right1,.nextChapter').find(e => visible(e) && !e.disabled && e.getAttribute('aria-disabled') !== 'true');
       if (button) return button;
+      const labelled = all(entry.doc, 'a,button,[role="button"]').filter(node => visible(node) && !node.disabled && node.getAttribute('aria-disabled') !== 'true' &&
+        !/(?:^|\s)disabled(?:\s|$)/.test(node.getAttribute('class') || '') && !node.closest('#xuexitong-independent-status,#coursetree') && textOf(node).replace(/\s+/g, '') === '下一节');
+      if (labelled.length === 1) return labelled[0];
       const tree = entry.doc.querySelector('#coursetree');
       if (tree) {
         const tasks = all(tree, '.posCatalog_select').filter(e => !e.closest('.firstLayer'));
@@ -711,6 +771,8 @@ function createCourseController(mode, token, initialFlow = 'auto') {
         fail('单独答题期间章节已改变，已取消；请在目标章节重新开始'); return;
       }
       const entries = documents();
+      const empty = emptyChapter(entries);
+      if (!sameEmpty(state.empty?.proof, empty)) state.empty = empty ? {proof:empty,start:Date.now()} : null;
       if (state.transition) {
         if (!fresh(state.transition.before, content(entries))) {
           if (Date.now() - state.transition.start >= Math.max(1, Number(configs.transitionTimeoutMs) || 45000)) fail('任务切换后未发现新内容，已停止；未跳过任务');
@@ -754,6 +816,12 @@ function createCourseController(mode, token, initialFlow = 'auto') {
       if (!deadline(state.pageStarted, '当前任务识别')) return;
       const videoTab = currentTab(entries, 'video');
       if (videoTab) { transition(videoTab, entries, 'video'); return; }
+      if (state.empty) {
+        const settle = Math.max(1, Number(configs.emptyChapterSettleMs) || 5000);
+        if (Date.now() - state.empty.start < settle) { diagnostic('当前章节显示暂无内容，正在确认加载和任务状态'); return; }
+        if (!state.empty.confirmed) { state.empty.confirmed = true; diagnostic('已确认当前章节暂无内容，继续下一节'); }
+        advanceTask(entries); return;
+      }
       diagnostic('未识别可播放视频或当前测验，请检查页面；任务保持等待');
     } catch (error) { fail(error instanceof Error ? error.message : '页面处理失败'); }
     finally { state.busy = false; }
@@ -780,11 +848,15 @@ function createCourseController(mode, token, initialFlow = 'auto') {
     diagnostic('正在单独处理当前章节测验，完成后停留');
     return run();
   }
+  function restartCurrent() {
+    if (state.destroyed || host.app !== api || (state.quiz?.submitted && !state.quiz.done)) return api;
+    return createCourseController(mode, token, state.flow);
+  }
   const onHide = () => { state.destroyed = true; stop('页面已离开，已取消所有工作'); panel.release(answerCurrentQuiz); };
   const api = {
     configs, get status() { return state.status; }, get message() { return state.message; },
     inspectQuiz() { const entry = quizEntry(documents()); if (!entry) return null; try { const snapshot = extract(entry); return snapshot?.rows.map(row => row.wire) || []; } catch (error) { return { error: error.message }; } },
-    run, play: run, answerCurrentQuiz,
+    run, play: run, answerCurrentQuiz, restart:restartCurrent,
     nextUnit() { if (state.alive) { reconcile(); schedule(); } return api; },
     stop,
     destroy() { state.destroyed = true; stop('控制器已替换或销毁'); host.removeEventListener('pagehide', onHide); panel.release(answerCurrentQuiz); }
@@ -794,7 +866,8 @@ function createCourseController(mode, token, initialFlow = 'auto') {
   host.app = api;
   host.addEventListener('pagehide', onHide);
   const panel = installStatusPanel({withAnswer:mode === 'console'});
-  panel.bind(answerCurrentQuiz, {mode:'course',onModeChange:()=>stop('已切换答题模式')});
+  panel.bind(answerCurrentQuiz, {mode:'course',onModeChange:()=>stop('已切换答题模式'),onRestart:restartCurrent,
+    canRestart:()=>!state.destroyed && (!state.alive || state.ready) && !(state.quiz?.submitted && !state.quiz.done)});
   if (state.flow === 'answer-only') state.answerScope = courseScope();
   diagnostic('控制器已启动');
   if (mode === 'console') {
@@ -806,7 +879,7 @@ function createCourseController(mode, token, initialFlow = 'auto') {
         if (!state.alive) return;
         if (!response.ok || response.status !== 200) { fail('本地服务健康检查失败'); return; }
         host.clearTimeout(state.requestTimer); state.requestTimer = null; state.abort = null;
-        state.ready = true; state.status = 'running'; run();
+        state.ready = true; state.status = 'running'; panel.update(answerCurrentQuiz,state.message,state.flow === 'answer-only'); run();
       }).catch(() => { if (state.alive) fail('无法连接本地答题服务'); });
     return api;
   }
