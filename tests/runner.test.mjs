@@ -11,7 +11,11 @@ import {document as fixtureDocument} from './dom.mjs';
 import {parseOptions, selectMode, checkNodeVersion, probeService, waitForService, getScripts, installBridge, createBootstrap, acquireInstance, manageContext, launchApplication, runRunner} from '../wb-runner-runtime.mjs';
 
 const health = (sessionId='one', mode='openai') => ({ok:true,service:'xuexitong-ai-helper',protocol:1,sessionId,mode});
-const scripts = (sessionId='one') => ({service:'xuexitong-ai-helper',protocol:1,sessionId,consoleScript:'window.consoleRuns=(window.consoleRuns||0)+1;',v3Script:'window.driverAtV3=window.__WB_DRIVER;'});
+const controllerScript = `window.consoleRuns=(window.consoleRuns||0)+1;
+window.app=window.__xuexitongConsoleDeepSeek={inspectQuiz(){},stop(){}};
+const answer=()=>{};window.__WBStatusPanel?.bind(answer,{mode:location.pathname.startsWith('/exam-ans/')?'exam':'course',onRestart:()=>{}});
+window.__WBStatusPanel?.update(answer,'controller ready',false);`;
+const scripts = (sessionId='one') => ({service:'xuexitong-ai-helper',protocol:1,sessionId,consoleScript:controllerScript,v3Script:'window.driverAtV3=window.__WB_DRIVER;'});
 const response = (body,status=200) => ({status,json:async()=>body});
 const fetchPair = (id='one',mode='openai') => async url => response(url.endsWith('/health') ? health(id,mode) : scripts(id));
 const tempDir = t => { const dir=mkdtempSync(join(tmpdir(),'wb-runner-test-'));t.after(()=>rmSync(dir,{recursive:true,force:true}));return dir; };
@@ -131,12 +135,12 @@ test('navigation during loopback permission setup prevents all credential reques
 });
 
 function browserSandbox(url,{child=false,readyState='complete',jquery=true}={}){
-  const events={};let calls=0;const errors=[];
+  const events={};let calls=0;const errors=[];const timers=new Map();let timerId=0;
   const document=fixtureDocument(url);document.readyState=readyState;
   const window={document,location:new URL(url),addEventListener:(name,callback)=>{events[name]=callback;},MutationObserver:class{constructor(callback){events.mutation=callback;}observe(){}disconnect(){}},jQuery:jquery?()=>{}:undefined,__WBGetScripts:async()=>{calls++;return scripts();}};
   window.top=child?{}:window;
-  const ctx=vm.createContext({window,location:window.location,document,console:{error:(...args)=>errors.push(args),log:()=>{}},setInterval:callback=>{events.tick=callback;return 1;},clearInterval:()=>{delete events.tick;}});
-  return {window,document,ctx,events,get calls(){return calls;},errors};
+  const ctx=vm.createContext({window,location:window.location,document,console:{error:(...args)=>errors.push(args),log:()=>{}},setTimeout:callback=>{timers.set(++timerId,callback);return timerId;},clearTimeout:id=>timers.delete(id),setInterval:callback=>{events.tick=callback;return 1;},clearInterval:()=>{delete events.tick;}});
+  return {window,document,ctx,events,timers,async nextTimer(){const entry=timers.entries().next().value;assert.ok(entry,'expected a scheduled retry');timers.delete(entry[0]);entry[1]();await flush();},get calls(){return calls;},errors};
 }
 const flush=()=>new Promise(resolve=>setImmediate(resolve));
 test('startup status exists on login, overview and blank pages without requesting answer credentials',async()=>{
@@ -173,13 +177,71 @@ test('document load repairs a reused blank Window even without a second init scr
   assert.equal(b.window.__WBStatusPanel.status.ownerDocument,current);
   assert.equal(b.calls,0);assert.equal(current.querySelector('#xuexitong-answer-current').disabled,true);
 });
-test('trusted bootstrap waits for document load and jQuery, then chooses console before optional V3', async () => {
+test('trusted bootstrap waits for document load then runs without a jQuery dependency', async () => {
   const b=browserSandbox('https://x.chaoxing.com/mycourse/studentstudy?chapterId=1',{readyState:'loading',jquery:false});
   vm.runInContext(createBootstrap({v3Enabled:true}),b.ctx);assert.equal(b.calls,0);
-  b.events.load();await flush();assert.equal(b.window.driverAtV3,'console');assert.equal(b.window.consoleRuns,undefined);
-  for(let i=0;i<20;i++) b.events.tick?.();
+  b.events.load();await flush();assert.equal(b.window.driverAtV3,'console');
   assert.equal(b.window.consoleRuns,1);assert.equal(b.window.__WB_CS_SRC,undefined);assert.equal(b.window.__WB_V3_SRC,undefined);
   vm.runInContext(createBootstrap({v3Enabled:true}),b.ctx);assert.equal(b.calls,1);
+});
+test('bootstrap recovers a transient bridge failure and a legacy boot flag without duplicate injection',async()=>{
+  const b=browserSandbox('https://x.chaoxing.com/mycourse/studentstudy');let attempts=0;
+  b.window.__WB_BOOTED=true;b.window.app={platform:true};
+  b.window.__WBGetScripts=async()=>{if(++attempts<3)throw Error('temporary private failure');return scripts();};
+  vm.runInContext(createBootstrap(),b.ctx);await flush();
+  assert.equal(b.document.querySelector('#xuexitong-answer-current').disabled,true);
+  await b.nextTimer();await b.nextTimer();
+  assert.equal(attempts,3);assert.equal(b.window.consoleRuns,1);assert.equal(b.timers.size,0);
+  assert.equal(b.document.querySelector('#xuexitong-answer-current').disabled,false);
+  vm.runInContext(createBootstrap(),b.ctx);await flush();assert.equal(attempts,3);
+  assert.equal(JSON.stringify(b.errors).includes('private failure'),false);
+});
+test('exhausted startup retries keep a manual restart usable and fetch fresh scripts',async()=>{
+  const b=browserSandbox('https://x.chaoxing.com/mycourse/studentstudy');let attempts=0,ready=false;
+  b.window.__WBGetScripts=async()=>{attempts++;if(!ready)throw Error('not ready');return scripts();};
+  vm.runInContext(createBootstrap(),b.ctx);await flush();for(let i=0;i<3;i++)await b.nextTimer();
+  const panel=b.window.__WBStatusPanel;
+  assert.equal(attempts,4);assert.equal(b.timers.size,0);assert.equal(panel.button.disabled,true);
+  assert.equal(panel.restartButton.disabled,false);assert.match(panel.message.textContent,/重新启动/);
+  ready=true;panel.restartButton.onclick();assert.equal(panel.restartButton.disabled,true);await flush();
+  assert.equal(attempts,5);assert.equal(b.window.consoleRuns,1);assert.equal(panel.button.disabled,false);assert.equal(panel.message.textContent,'controller ready');
+});
+test('repeated bootstrap while scripts are pending creates only one request',async()=>{
+  const b=browserSandbox('https://x.chaoxing.com/mycourse/studentstudy');let finish,attempts=0;
+  b.window.__WBGetScripts=()=>{attempts++;return new Promise(resolve=>{finish=resolve;});};
+  vm.runInContext(createBootstrap(),b.ctx);vm.runInContext(createBootstrap(),b.ctx);assert.equal(attempts,1);
+  finish(scripts());await flush();assert.equal(b.window.consoleRuns,1);
+});
+test('pagehide cancels scheduled startup retries and ignores a late delivery',async()=>{
+  for(const pending of [false,true]){
+    const b=browserSandbox('https://x.chaoxing.com/mycourse/studentstudy');let finish;
+    b.window.__WBGetScripts=()=>pending?new Promise(resolve=>{finish=resolve;}):Promise.reject(Error('offline'));
+    vm.runInContext(createBootstrap(),b.ctx);await flush();b.events.pagehide();
+    if(finish)finish(scripts());await flush();assert.equal(b.timers.size,0);assert.equal(b.window.consoleRuns,undefined);
+    assert.equal(b.document.querySelector('#xuexitong-restart-current').disabled,true);
+  }
+});
+test('a replacement document can bootstrap even while the old document is awaiting scripts',async()=>{
+  const b=browserSandbox('https://x.chaoxing.com/mycourse/studentstudy');let finish;
+  b.window.__WBGetScripts=()=>new Promise(resolve=>{finish=resolve;});vm.runInContext(createBootstrap(),b.ctx);
+  const current=fixtureDocument('https://x.chaoxing.com/mycourse/studentstudy?chapterId=2');current.readyState='complete';
+  b.window.document=current;b.ctx.document=current;b.window.location=new URL(current.URL);b.ctx.location=b.window.location;
+  b.window.__WBGetScripts=async()=>scripts();vm.runInContext(createBootstrap(),b.ctx);await flush();finish(scripts());await flush();
+  assert.equal(b.window.consoleRuns,1);assert.equal(b.window.__WBStatusPanel.status.ownerDocument,current);
+});
+test('a same-document navigation during delivery never executes stale scripts',async()=>{
+  const b=browserSandbox('https://x.chaoxing.com/mycourse/studentstudy?chapterId=1');let finish;
+  b.window.__WBGetScripts=()=>new Promise(resolve=>{finish=resolve;});vm.runInContext(createBootstrap(),b.ctx);
+  b.window.location=new URL('https://x.chaoxing.com/mycourse/studentstudy?chapterId=2');b.ctx.location=b.window.location;
+  finish(scripts());await flush();assert.equal(b.window.consoleRuns,undefined);assert.equal(b.timers.size,0);
+});
+test('script execution failures are visible and never automatically replay a partial script',async()=>{
+  for(const source of ['window.partialRuns=(window.partialRuns||0)+1;throw Error("private detail");','window.partialRuns=(window.partialRuns||0)+1;']){
+    const b=browserSandbox('https://x.chaoxing.com/mycourse/studentstudy');b.window.__WBGetScripts=async()=>({...scripts(),consoleScript:source});
+    vm.runInContext(createBootstrap(),b.ctx);await flush();assert.equal(b.window.partialRuns,1);assert.equal(b.timers.size,0);
+    assert.match(b.window.__WBStatusPanel.message.textContent,/重新启动/);assert.equal(b.window.__WBStatusPanel.restartButton.disabled,false);
+    assert.equal(JSON.stringify(b.errors).includes('private detail'),false);
+  }
 });
 test('bootstrap injects console when jQuery is ready without injecting default V3', async () => {
   const b=browserSandbox('https://chaoxing.com/mycourse/studentstudy');vm.runInContext(createBootstrap(),b.ctx);await flush();

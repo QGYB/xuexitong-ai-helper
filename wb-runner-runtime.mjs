@@ -144,28 +144,65 @@ export async function installBridge(context, options = {}) {
 function bootstrap({v3Enabled}) {
     const trusted = () => window === window.top && location.protocol === 'https:' &&
         /(^|\.)chaoxing\.com$/i.test(location.hostname) && /^\/(?:(?:mooc2-ans\/)?mycourse\/studentstudy|exam-ans\/exam\/test\/reVersionTestStartNew)\/?$/.test(location.pathname);
-    if (!trusted() || window.__WB_BOOTED) return;
-    window.__WB_BOOTED = true;
+    if (!trusted()) return;
+    const doc = window.document, url = location.href, previous = window.__WB_BOOT_STATE;
+    if (previous?.document === doc && !previous.closed) return;
+    previous?.cancel?.();
+    const controller = () => {
+        const own = window.__xuexitongConsoleDeepSeek;
+        return own && own === window.app && typeof own.inspectQuiz === 'function' && typeof own.stop === 'function';
+    };
+    if (!previous && controller()) { window.__WB_BOOTED = true; return; }
+    const state = {document:doc, closed:false, phase:'waiting', attempts:0, timer:null};
+    window.__WB_BOOT_STATE = state;
+    window.__WB_BOOTED = false;
+    const panel = window.__WBStatusPanel;
+    const active = () => !state.closed && window.__WB_BOOT_STATE === state && window.document === doc && location.href === url && trusted();
+    const startup = () => {};
+    const bindStartup = () => panel.bind(startup, {
+        mode:/^\/exam-ans\//.test(location.pathname) ? 'exam' : 'course',
+        onRestart:() => { if (active() && state.phase === 'failed') { state.attempts = 0; void boot(); } },
+        canRestart:() => active() && state.phase === 'failed'
+    });
+    const failed = message => {
+        if (!active()) return;
+        state.phase = 'failed'; bindStartup(); panel.update(startup, message, true);
+        console.error('[学习通注入] 启动未完成，可通过右下角重新启动按钮重试。');
+    };
+    state.cancel = () => {
+        state.closed = true; clearTimeout(state.timer); state.timer = null; panel.release(startup);
+    };
+    window.addEventListener('pagehide', state.cancel, {once:true});
+    bindStartup(); panel.update(startup, '正在连接本地服务，加载学习助手', true);
     async function boot() {
-        if (!trusted()) return;
+        if (!active() || state.phase === 'loading' || state.phase === 'ready') return;
+        state.phase = 'loading'; state.attempts++;
+        panel.update(startup, '正在连接本地服务，加载学习助手', true);
+        let payload;
         try {
-            const payload = await window.__WBGetScripts();
-            if (!trusted()) return;
+            payload = await window.__WBGetScripts();
+        } catch {
+            if (!active()) return;
+            if (state.attempts < 4) {
+                state.phase = 'waiting';
+                panel.update(startup, `连接未成功，正在自动重连（${state.attempts}/3）`, true);
+                state.timer = setTimeout(() => { state.timer = null; void boot(); }, 1000);
+            } else failed('无法加载学习助手；服务恢复后点击“重新启动”重试');
+            return;
+        }
+        if (!active()) return;
+        try {
+            if (typeof payload?.consoleScript !== 'string' || !payload.consoleScript.trim()) throw new Error('Missing script');
             window.__WB_DRIVER = 'console';
-            const execute = source => { try { (new Function(source))(); } catch { console.error('[学习通注入] 脚本执行失败，请检查页面控制台。'); } };
-            if (v3Enabled && payload.v3Script) execute(payload.v3Script);
-            // The console script has its own CDN loader if jQuery is still unavailable after 10 seconds.
-            if (typeof window.jQuery === 'function') { execute(payload.consoleScript); return; }
-            let waited = 0;
-            const timer = setInterval(() => {
-                if (!trusted()) { clearInterval(timer); return; }
-                waited += 500;
-                if (typeof window.jQuery === 'function' || waited >= 10000) {
-                    clearInterval(timer); execute(payload.consoleScript);
-                }
-            }, 500);
-            window.addEventListener('pagehide', () => clearInterval(timer), {once: true});
-        } catch { console.error('[学习通注入] 本地服务未就绪或会话已变更，重启服务后刷新课程页。'); }
+            if (v3Enabled && payload.v3Script) {
+                try { (new Function(payload.v3Script))(); }
+                catch { console.error('[学习通注入] 可选播放器脚本未能启动。'); }
+            }
+            // Both independently authored controllers use native DOM APIs, without jQuery.
+            (new Function(payload.consoleScript))();
+            if (!controller()) throw new Error('Controller did not start');
+            state.phase = 'ready'; window.__WB_BOOTED = true;
+        } catch { failed('学习助手启动失败；点击“重新启动”重试，详情见控制台'); }
     }
     if (document.readyState === 'complete') void boot();
     else window.addEventListener('load', () => { void boot(); }, {once: true});
