@@ -94,6 +94,7 @@ function createCourseController(mode, token, initialFlow = 'auto') {
   }
   function stop(reason = '已停止') {
     state.alive = false; state.status = 'stopped';
+    videoQuizzes.stop();
     host.clearTimeout(state.timer); host.clearTimeout(state.requestTimer);
     state.timer = null; state.requestTimer = null;
     for (const timer of state.pendingTimers) host.clearTimeout(timer);
@@ -633,6 +634,7 @@ function createCourseController(mode, token, initialFlow = 'auto') {
         fail('单独答题期间章节已改变，已取消；请在目标章节重新开始'); return;
       }
       const entries = documents();
+      if (await videoQuizzes.reconcile(entries)) return;
       const empty = emptyChapter(entries);
       if (!sameEmpty(state.empty?.proof, empty)) state.empty = empty ? {proof:empty,start:Date.now()} : null;
       if (state.transition) {
@@ -711,13 +713,16 @@ function createCourseController(mode, token, initialFlow = 'auto') {
     return run();
   }
   function restartCurrent() {
-    if (state.destroyed || host.app !== api || (state.quiz?.submitted && !state.quiz.done)) return api;
+    if (state.destroyed || host.app !== api || !videoQuizzes.canRestart || (state.quiz?.submitted && !state.quiz.done)) return api;
     return createCourseController(mode, token, state.flow);
   }
+  const videoQuizzes = createVideoQuizAdapter({mode,token,configs,dom:{all,visible,visibleOption,optionTarget,controlLabel},readEntries:documents,taskKey,
+    isAlive:()=>state.alive,onMessage:diagnostic,onFailure:fail,decodeAnswers:validateAnswers,onResume:playVideo,
+    onComplete:()=>{state.playAttempts=0;state.lastProgress=Date.now();state.lastTime=null;if(state.flow==='answer-only')stop('当前视频弹题已完成，已停留在本节');}});
   const onHide = () => { state.destroyed = true; stop('页面已离开，已取消所有工作'); panel.release(answerCurrentQuiz); };
   const api = {
     configs, get status() { return state.status; }, get message() { return state.message; },
-    inspectQuiz() { const entry = quizEntry(documents()); if (!entry) return null; try { const snapshot = extract(entry); return snapshot?.rows.map(row => row.wire) || []; } catch (error) { return { error: error.message }; } },
+    inspectQuiz() { const entries=documents();try{const popup=videoQuizzes.inspect(entries);if(popup)return popup;}catch(error){return {error:error.message};}const entry = quizEntry(entries); if (!entry) return null; try { const snapshot = extract(entry); return snapshot?.rows.map(row => row.wire) || []; } catch (error) { return { error: error.message }; } },
     run, play: run, answerCurrentQuiz, restart:restartCurrent,
     nextUnit() { if (state.alive) { reconcile(); schedule(); } return api; },
     stop,
@@ -729,7 +734,7 @@ function createCourseController(mode, token, initialFlow = 'auto') {
   host.addEventListener('pagehide', onHide);
   const panel = installStatusPanel({withAnswer:mode === 'console'});
   panel.bind(answerCurrentQuiz, {mode:'course',onModeChange:()=>stop('已切换答题模式'),onRestart:restartCurrent,
-    canRestart:()=>!state.destroyed && (!state.alive || state.ready) && !(state.quiz?.submitted && !state.quiz.done)});
+    canRestart:()=>!state.destroyed && (!state.alive || state.ready) && videoQuizzes.canRestart && !(state.quiz?.submitted && !state.quiz.done)});
   if (state.flow === 'answer-only') state.answerScope = courseScope();
   diagnostic('控制器已启动');
   if (mode === 'console') {
