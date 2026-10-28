@@ -21,4 +21,4 @@
 
 `ocsjs/ocsjs` 仅为早期文档致谢对象，未随本项目分发，其许可不用于本项目浏览器实现。
 
-项目原创部分适用 LICENSE 中的自定义非商业许可，不宣称是标准开源许可证。第三方依赖、平台内容和商标不被重新授权。
+项目作者有权授权的原创部分适用 [LICENSE](LICENSE) 中未经修改的 GNU Affero General Public License v3.0（`AGPL-3.0-only`），版权与授权声明见 [NOTICE](NOTICE)。没有项目专属的非商业条款或额外许可条件。第三方依赖、平台内容和商标不被重新授权，中文说明见 [LICENSE-FAQ.md](LICENSE-FAQ.md)。

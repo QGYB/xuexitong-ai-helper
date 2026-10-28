@@ -1,0 +1,27 @@
+xuexitong-ai-helper
+https://github.com/QGYB/xuexitong-ai-helper
+Copyright (c) 2026 QGYB and xuexitong-ai-helper contributors.
+
+SPDX-License-Identifier: AGPL-3.0-only
+
+This program is free software: you can redistribute it and/or modify
+it under the terms of the GNU Affero General Public License as published
+by the Free Software Foundation, version 3 of the License.
+
+This program is distributed in the hope that it will be useful,
+but WITHOUT ANY WARRANTY; without even the implied warranty of
+MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
+GNU Affero General Public License for more details.
+
+You should have received a copy of the GNU Affero General Public License
+along with this program. If not, see <https://www.gnu.org/licenses/>.
+
+The license applies to original repository material that its copyright
+holders have the right to license, including source code, generated entry
+scripts, tests, documentation, and configuration templates. Contributors
+retain copyright in their respective contributions.
+
+Third-party packages, platform content, browsers, accounts, and trademarks
+remain subject to their respective terms. See THIRD_PARTY_NOTICES.md.
+
+This notice adds no project-specific license conditions or exceptions.

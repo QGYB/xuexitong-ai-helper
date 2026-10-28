@@ -20,5 +20,5 @@
   "engines": {
     "node": ">=22.12.0"
   },
-  "license": "SEE LICENSE IN LICENSE"
+  "license": "AGPL-3.0-only"
 }

@@ -2,7 +2,9 @@
 
 Playwright 驱动本机 Edge，在课程播放页注入视频与章节练习脚本；本地服务使用 Jev 优先、OpenAI 兼容 API 或 WorkBuddy 云服务兜底的策略生成答案。
 
-> 本项目仅供学习交流与自动化技术演示，严禁用于正式考试、违法违规用途或违反学校及平台规则的行为。自动化可能触发账号风控，使用者应取得必要权限并自行承担使用责任。原创部分禁止商用，采用[自定义非商业源码许可](LICENSE)，不宣称是标准 LGPL 开源许可。
+> 项目用途与合规提示：本项目用于学习交流与自动化技术演示，请勿用于正式考试、违法违规用途或违反学校及平台规则的行为。自动化可能触发账号风控，使用者应取得必要权限并自行承担使用责任。此提示不作为许可证附加条件，也不授予学校、平台或第三方的权限。
+>
+> 原创部分采用 [GNU Affero General Public License v3.0](LICENSE)（`AGPL-3.0-only`）开源许可，允许商业使用，使用、修改及再分发须遵守协议。具体说明见[中文许可说明](LICENSE-FAQ.md)。
 
 ## 环境与安装
 
@@ -231,4 +233,8 @@ node scripts/evaluate-workbuddy.mjs --config wb-public-config.json --models deep
 - [ocsjs/ocsjs](https://github.com/ocsjs/ocsjs)：仅致谢、未包含；核对的5.0分支为MIT。
 - [TypeSafe AI](https://typesafe.ai/)：Jev接口提供方；Noul/Choice协议以[官方 OpenAPI](https://api.typesafe.ai/openapi.json)为准。
 
-原创部分采用 [LICENSE](LICENSE) 中的自定义非商业许可。第三方代码、依赖和商标不被重新授权。免责声明、署名及“要求后移除”都不代替学校/平台许可或上游版权授权。
+本版本由项目作者有权授权的原创代码、生成入口、测试、文档和配置模板采用 [GNU Affero General Public License v3.0](LICENSE)，SPDX 标识为 `AGPL-3.0-only`。许可证全文未经修改，不附加非商业用途限制或其他项目专属条件；[NOTICE](NOTICE) 提供项目版权与版本3授权声明，[中文许可说明](LICENSE-FAQ.md) 帮助理解原文。
+
+AGPLv3允许商业使用和收费分发；依协议分发修改版时须保留相应声明并提供对应源码。修改版通过网络与用户交互时，应按第13条向这些用户显著提供免费获取该版本对应源码的机会。满足AGPLv3条件的商业使用不需要另向维护者购买商业许可。第三方依赖、平台内容和商标仍适用各自条款。
+
+本次许可变更适用于采用新许可的版本，不追溯替换历史版本随附的条款。免责声明、署名及“要求后移除”都不代替学校/平台许可或上游版权授权。贡献须知见 [CONTRIBUTING.md](CONTRIBUTING.md)。
